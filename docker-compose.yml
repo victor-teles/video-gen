@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # Redis for Celery task queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Main FastAPI application
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      - DATABASE_URL=sqlite:///./storage/app.db
+      
+      # Redis/Celery
+      - REDIS_URL=redis://redis:6379/0
+      
+      # Storage (you can change this to 's3' when testing with S3)
+      - STORAGE_TYPE=local
+      
+      # S3 settings (for when you want to test S3)
+      # - AWS_ACCESS_KEY_ID=your_access_key
+      # - AWS_SECRET_ACCESS_KEY=your_secret_key
+      # - S3_BUCKET_NAME=trod-video-clips
+      # - AWS_REGION=us-east-1
+      
+      # API settings
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DEBUG=true
+      
+      # Processing settings
+      - DEFAULT_NUM_CLIPS=3
+      - DEFAULT_RATIO=16:9
+      - MAX_FILE_SIZE=500
+      - ALLOWED_EXTENSIONS=mp4,avi,mov,mkv
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount storage for local testing
+      - ./storage:/app/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery worker for background processing
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      # Same environment as web service
+      - DATABASE_URL=sqlite:///./storage/app.db
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_TYPE=local
+      
+      # S3 settings (for when you want to test S3)
+      # - AWS_ACCESS_KEY_ID=your_access_key
+      # - AWS_SECRET_ACCESS_KEY=your_secret_key
+      # - S3_BUCKET_NAME=trod-video-clips
+      # - AWS_REGION=us-east-1
+      
+      # AI Settings
+      - WHISPER_MODEL_SIZE=base
+      - YOLO_MODEL=yolov8n.pt
+      - AI_DEVICE=cpu
+      
+      # Worker settings
+      - CELERY_WORKER_CONCURRENCY=1
+      - CELERY_LOG_LEVEL=info
+      - CELERY_TASK_TIME_LIMIT=3600
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount storage and model files
+      - ./storage:/app/storage
+      - ./yolov8n.pt:/app/yolov8n.pt
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # Celery Flower for monitoring (optional)
+  flower:
+    build: .
+    command: celery -A tasks flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - monitoring 

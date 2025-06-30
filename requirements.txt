@@ -1,0 +1,41 @@
+# FastAPI and Web Framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+aiofiles==24.1.0
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.16.2
+psycopg2-binary==2.9.9
+
+# Queue System
+celery==5.4.0
+redis==5.2.1
+flower==2.0.1
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# Video Processing and AI Libraries
+clipsai
+git+https://github.com/m-bain/whisperx.git
+ultralytics
+opencv-python
+torch
+torchvision
+torchaudio
+
+# Standard Libraries
+numpy
+pathlib
+argparse 
+
+# AWS/S3 Storage
+boto3==1.34.51
+botocore==1.34.51
+s3transfer==0.10.0
+
+# Additional dependencies for Docker
+python-magic==0.4.27
+requests==2.31.0

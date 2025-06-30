@@ -1,0 +1,70 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment folders
+venv/
+.venv/
+env/
+ENV/
+.ENV/
+clip_generator_env/
+.clip_generator_env/
+
+# Video files
+storage/
+
+# Logs and databases
+*.log
+*.pid
+*.db
+*.sqlite3
+
+# Environment and configuration files
+.env
+.env.*
+*.ini
+*.cfg
+
+# Media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Pytest and test cache
+.pytest_cache/
+.coverage
+.cache/
+htmlcov/
+
+# Mypy and other linters
+.mypy_cache/
+.dmypy.json
+.pyre/
+.bandit/
+
+# Editors/IDEs
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Python package build files
+build/
+dist/
+*.egg-info/
+
+# Docker
+*.dockerfile
+docker-compose.override.yml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Others
+*.bak
+*.orig
