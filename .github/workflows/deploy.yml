@@ -43,24 +43,21 @@ jobs:
         python -c "import fastapi; print('✅ FastAPI imported successfully')"
         python -c "
         try:
-            # Test basic imports first
             import config
             from models import ProcessingJob, GeneratedClip
             from database import get_db
             print('✅ Core modules imported successfully')
-            
-            # Try importing main module 
             import main
             print('✅ Main module imported successfully')
         except ImportError as e:
             error_str = str(e).lower()
             heavy_deps = ['torch', 'ultralytics', 'whisperx', 'clipsai', 'clip_generator']
             if any(dep in error_str for dep in heavy_deps):
-                print(f'⚠️  Heavy ML dependency missing (expected in CI): {e}')
+                print('⚠️  Heavy ML dependency missing (expected in CI):', e)
                 print('✅ Core application structure is valid')
             else:
-                print(f'❌ Unexpected import error: {e}')
-                                 raise e
+                print('❌ Unexpected import error:', e)
+                raise e
         "
 
     - name: Test API structure
