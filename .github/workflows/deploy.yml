@@ -42,7 +42,7 @@ jobs:
       run: |
         python -c "import fastapi; print('✅ FastAPI imported successfully')"
         python -c "from config import STORAGE_TYPE, S3_BUCKET_NAME; print(f'✅ Config loaded: {STORAGE_TYPE}, {S3_BUCKET_NAME}')"
-        python -c "from models import ClipRequest, JobStatus; print('✅ Models loaded successfully')"
+        python -c "from models import ProcessingJob, GeneratedClip; print('✅ Models loaded successfully')"
         python -c "import main; print('✅ Main module structure OK')"
 
     - name: Test API structure
