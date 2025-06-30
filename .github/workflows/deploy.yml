@@ -1,0 +1,251 @@
+name: Deploy to AWS Fargate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: video-clip-generator
+  ENVIRONMENT: production
+
+jobs:
+  # Test and Build
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install fastapi uvicorn pytest requests
+
+    - name: Run basic tests
+      run: |
+        python -c "import fastapi; print('FastAPI imported successfully')"
+        python -c "from config import *; print('Config loaded successfully')"
+        python -c "from database import *; print('Database models loaded successfully')"
+
+  # Deploy Infrastructure
+  deploy-infrastructure:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    outputs:
+      ecr-api-uri: ${{ steps.deploy-infra.outputs.ecr-api-uri }}
+      ecr-worker-uri: ${{ steps.deploy-infra.outputs.ecr-worker-uri }}
+      load-balancer-url: ${{ steps.deploy-infra.outputs.load-balancer-url }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Deploy infrastructure stack
+      id: deploy-infra
+      run: |
+        # Deploy base infrastructure
+        aws cloudformation deploy \
+          --template-file deployment/cloudformation-infrastructure.yml \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
+          --parameter-overrides \
+            ProjectName=${PROJECT_NAME} \
+            Environment=${ENVIRONMENT} \
+          --capabilities CAPABILITY_IAM \
+          --no-fail-on-empty-changeset
+
+        # Deploy application stack
+        aws cloudformation deploy \
+          --template-file deployment/cloudformation-application.yml \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --parameter-overrides \
+            ProjectName=${PROJECT_NAME} \
+            Environment=${ENVIRONMENT} \
+            ImageTag=latest \
+          --capabilities CAPABILITY_IAM \
+          --no-fail-on-empty-changeset
+
+        # Get outputs
+        ECR_API_URI=$(aws cloudformation describe-stacks \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryAPIURI`].OutputValue' \
+          --output text)
+        
+        ECR_WORKER_URI=$(aws cloudformation describe-stacks \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryWorkerURI`].OutputValue' \
+          --output text)
+        
+        LOAD_BALANCER_URL=$(aws cloudformation describe-stacks \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
+          --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerUrl`].OutputValue' \
+          --output text)
+
+        echo "ecr-api-uri=${ECR_API_URI}" >> $GITHUB_OUTPUT
+        echo "ecr-worker-uri=${ECR_WORKER_URI}" >> $GITHUB_OUTPUT
+        echo "load-balancer-url=${LOAD_BALANCER_URL}" >> $GITHUB_OUTPUT
+
+  # Build and Push Docker Images
+  build-and-push:
+    needs: deploy-infrastructure
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    strategy:
+      matrix:
+        component: [api, worker]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Set ECR repository URI
+      id: set-ecr-uri
+      run: |
+        if [ "${{ matrix.component }}" = "api" ]; then
+          echo "ecr-uri=${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}" >> $GITHUB_OUTPUT
+          echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
+        else
+          echo "ecr-uri=${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}" >> $GITHUB_OUTPUT
+          echo "dockerfile=Dockerfile.worker" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY_URI: ${{ steps.set-ecr-uri.outputs.ecr-uri }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build image
+        docker build -f ${{ steps.set-ecr-uri.outputs.dockerfile }} -t ${ECR_REPOSITORY_URI}:${IMAGE_TAG} .
+        docker tag ${ECR_REPOSITORY_URI}:${IMAGE_TAG} ${ECR_REPOSITORY_URI}:latest
+        
+        # Push images
+        docker push ${ECR_REPOSITORY_URI}:${IMAGE_TAG}
+        docker push ${ECR_REPOSITORY_URI}:latest
+
+  # Deploy Application
+  deploy-application:
+    needs: [deploy-infrastructure, build-and-push]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update ECS services
+      run: |
+        # Update API service
+        aws ecs update-service \
+          --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+          --service ${PROJECT_NAME}-${ENVIRONMENT}-api \
+          --force-new-deployment
+
+        # Update Worker service
+        aws ecs update-service \
+          --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+          --service ${PROJECT_NAME}-${ENVIRONMENT}-worker \
+          --force-new-deployment
+
+    - name: Wait for deployment to complete
+      run: |
+        echo "Waiting for API service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+          --services ${PROJECT_NAME}-${ENVIRONMENT}-api
+
+        echo "Waiting for Worker service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+          --services ${PROJECT_NAME}-${ENVIRONMENT}-worker
+
+    - name: Test deployment
+      run: |
+        LOAD_BALANCER_URL="${{ needs.deploy-infrastructure.outputs.load-balancer-url }}"
+        
+        # Wait a bit for load balancer to route traffic
+        sleep 30
+        
+        # Test health endpoint
+        echo "Testing health endpoint..."
+        curl -f "${LOAD_BALANCER_URL}/api/health" || exit 1
+        
+        # Test main endpoint
+        echo "Testing main endpoint..."
+        curl -f "${LOAD_BALANCER_URL}/" || exit 1
+        
+        echo "✅ Deployment successful!"
+        echo "🌐 Application URL: ${LOAD_BALANCER_URL}"
+
+  # Cleanup on failure
+  cleanup-on-failure:
+    needs: [deploy-infrastructure, build-and-push, deploy-application]
+    runs-on: ubuntu-latest
+    if: failure() && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Rollback deployment
+      run: |
+        echo "🚨 Deployment failed, checking if rollback is needed..."
+        
+        # Check if services exist and rollback if needed
+        if aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-api >/dev/null 2>&1; then
+          echo "Rolling back API service..."
+          aws ecs update-service \
+            --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+            --service ${PROJECT_NAME}-${ENVIRONMENT}-api \
+            --desired-count 1 \
+            --force-new-deployment
+        fi
+        
+        if aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-worker >/dev/null 2>&1; then
+          echo "Rolling back Worker service..."
+          aws ecs update-service \
+            --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+            --service ${PROJECT_NAME}-${ENVIRONMENT}-worker \
+            --desired-count 1 \
+            --force-new-deployment
+        fi 

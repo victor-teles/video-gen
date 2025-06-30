@@ -1,87 +1,319 @@
-# 🚀 Video Clip Generator Deployment
+# 🚀 AWS Fargate Deployment Guide
 
-This directory contains scripts and documentation for deploying the Video Clip Generator.
+Complete guide to deploy Video Clip Generator to AWS Fargate with automatic CI/CD.
 
-## 📦 S3 Storage Setup
+## 📋 Prerequisites
 
-The application uses AWS S3 for storing:
-- 📤 Uploaded videos (`uploads/`)
-- ⚙️ Processing files (`processing/`)
-- 📥 Generated clips and captions (`results/`)
+### ✅ Required Tools
+- [AWS CLI](https://aws.amazon.com/cli/) configured with your credentials
+- [Docker](https://www.docker.com/) installed and running
+- [Git](https://git-scm.com/) for version control
+- GitHub account with your repository
 
-### 🔧 Setup Steps
+### ✅ AWS Setup
+- AWS Account with billing enabled
+- S3 bucket `trod-video-clips` (already created)
+- AWS credentials with appropriate permissions
+- Region: `us-east-1`
 
-1. **Create `.env` file in project root:**
-   ```env
-   AWS_ACCESS_KEY_ID=your_access_key
-   AWS_SECRET_ACCESS_KEY=your_secret_key
-   AWS_REGION=us-east-1
-   S3_BUCKET_NAME=trod-video-clips
-   ```
+## 🏗️ Architecture Overview
 
-2. **Run S3 setup script:**
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   GitHub        │    │   AWS Fargate    │    │   Amazon S3     │
+│                 │    │                  │    │                 │
+│ ┌─────────────┐ │    │ ┌──────────────┐ │    │ ┌─────────────┐ │
+│ │   Source    │ ├────┤ │     API      │ ├────┤ │   Videos    │ │
+│ │    Code     │ │    │ │  (FastAPI)   │ │    │ │   Storage   │ │
+│ └─────────────┘ │    │ └──────────────┘ │    │ └─────────────┘ │
+│                 │    │                  │    │                 │
+│ ┌─────────────┐ │    │ ┌──────────────┐ │    │ ┌─────────────┐ │
+│ │   CI/CD     │ ├────┤ │   Workers    │ │    │ │   Results   │ │
+│ │ (Actions)   │ │    │ │  (Celery)    │ ├────┤ │   Storage   │ │
+│ └─────────────┘ │    │ └──────────────┘ │    │ └─────────────┘ │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                       ┌──────────────────┐
+                       │  Amazon Redis    │
+                       │  (ElastiCache)   │
+                       └──────────────────┘
+```
+
+## 🚀 Deployment Options
+
+### Option 1: Automatic CI/CD (Recommended)
+
+**Push to GitHub and let automation handle everything:**
+
+1. **Add AWS Secrets to GitHub:**
    ```bash
-   cd deployment
-   chmod +x s3_setup.sh
-   ./s3_setup.sh
+   # Go to: GitHub Repository → Settings → Secrets and Variables → Actions
+   # Add these secrets:
+   
+   AWS_ACCESS_KEY_ID: your-access-key-id
+   AWS_SECRET_ACCESS_KEY: your-secret-access-key
    ```
 
-### 📁 S3 Bucket Structure
+2. **Push to Main Branch:**
+   ```bash
+   git add .
+   git commit -m "Deploy to AWS Fargate"
+   git push origin main
+   ```
 
+3. **Monitor Deployment:**
+   - Go to GitHub → Actions tab
+   - Watch the deployment progress
+   - Get your application URL from the deployment logs
+
+### Option 2: Manual Deployment
+
+**Deploy manually using the provided script:**
+
+```bash
+cd deployment
+chmod +x deploy.sh
+./deploy.sh
 ```
-s3://trod-video-clips/
-├── uploads/
-│   └── {processing_id}/
-│       └── original.mp4
-├── processing/
-│   └── {processing_id}/
-│       ├── temp_clips/
-│       └── transcriptions/
-└── results/
-    └── {processing_id}/
-        ├── clip_01_title.mp4
-        ├── clip_01_title.json
-        ├── clip_02_title.mp4
-        └── clip_02_title.json
+
+## 📁 Deployment Files
+
+| File | Purpose |
+|------|---------|
+| `cloudformation-infrastructure.yml` | AWS infrastructure (VPC, ECS, Load Balancer) |
+| `cloudformation-application.yml` | Application resources (ECR, Task Definitions) |
+| `.github/workflows/deploy.yml` | GitHub Actions CI/CD pipeline |
+| `deploy.sh` | Manual deployment script |
+| `cleanup.sh` | Resource cleanup script |
+
+## 🔧 Configuration
+
+### Environment Variables (Production)
+
+The deployment automatically configures these production settings:
+
+```yaml
+# Storage
+STORAGE_TYPE: s3
+S3_BUCKET_NAME: trod-video-clips
+AWS_REGION: us-east-1
+
+# API
+API_HOST: 0.0.0.0
+API_PORT: 8000
+DEBUG: false
+
+# Processing
+DEFAULT_NUM_CLIPS: 3
+DEFAULT_RATIO: "16:9"
+MAX_FILE_SIZE: 500
+
+# AI Settings
+WHISPER_MODEL_SIZE: base
+YOLO_MODEL: yolov8n.pt
+AI_DEVICE: cpu
+
+# Worker Settings
+CELERY_WORKER_CONCURRENCY: 1
+CELERY_LOG_LEVEL: info
+CELERY_TASK_TIME_LIMIT: 3600
 ```
 
-### ⚙️ Lifecycle Rules
+### Resource Sizing
 
-- `uploads/`: Files deleted after 1 day
-- `processing/`: Files deleted after 1 day
-- `results/`: Files deleted after 7 days
+| Service | CPU | Memory | Instances | Purpose |
+|---------|-----|--------|-----------|---------|
+| API | 512 | 1GB | 1-10 (auto-scale) | Handle HTTP requests |
+| Worker | 1024 | 2GB | 1-5 (auto-scale) | Process videos |
+| Redis | t3.micro | - | 1 | Task queue |
 
-### 🔒 Security
+## 📊 Monitoring & Management
 
-- CORS configured for:
-  - `https://trod.ai`
-  - `https://api.trod.ai`
-  - `http://localhost:3000` (development)
-  - `http://localhost:8000` (development)
+### CloudWatch Logs
+```bash
+# View API logs
+aws logs tail /ecs/video-clip-generator-production --follow
 
-### 📝 Usage in Code
+# View Worker logs  
+aws logs tail /ecs/video-clip-generator-production --follow --filter-pattern "worker"
+```
 
-```python
-from deployment.s3_storage import S3Storage
+### Scaling Services
+```bash
+# Scale API instances
+aws ecs update-service \
+  --cluster video-clip-generator-production \
+  --service video-clip-generator-production-api \
+  --desired-count 2
 
-# Initialize storage
-s3 = S3Storage()
+# Scale Worker instances
+aws ecs update-service \
+  --cluster video-clip-generator-production \
+  --service video-clip-generator-production-worker \
+  --desired-count 2
+```
 
-# Upload file
-s3.upload_file('local/path/video.mp4', 'uploads/123/video.mp4')
+### Health Checks
+- **Application Health:** `http://your-load-balancer-url/api/health`
+- **API Documentation:** `http://your-load-balancer-url/docs`
+- **ECS Console:** AWS Console → ECS → Clusters → video-clip-generator-production
 
-# Download file
-s3.download_file('results/123/clip_01.mp4', 'local/path/clip.mp4')
+## 💰 Cost Estimation
 
-# Get presigned URL
-url = s3.get_presigned_url('results/123/clip_01.mp4')
+**For 5-10 videos/day (MVP usage):**
 
-# List files
-files = s3.list_files('results/123/')
+| Service | Monthly Cost |
+|---------|-------------|
+| ECS Fargate (API) | $15-25 |
+| ECS Fargate (Worker) | $20-30 |
+| Application Load Balancer | $16 |
+| ElastiCache Redis | $10 |
+| ECR (Docker Images) | $2-5 |
+| CloudWatch Logs | $2-5 |
+| Data Transfer | $5-10 |
+| **Total** | **$75-100/month** |
 
-# Delete file
-s3.delete_file('uploads/123/video.mp4')
+**Notes:**
+- S3 storage costs separate (minimal for 5-10 videos)
+- Spot instances used for 80% cost savings
+- Auto-scaling reduces costs during low usage
 
-# Move file
-s3.move_file('processing/123/temp.mp4', 'results/123/final.mp4')
-``` 
+## 🔒 Security Features
+
+### Network Security
+- VPC with private subnets
+- Security groups restricting traffic
+- Load balancer SSL termination (when certificate added)
+
+### Application Security
+- IAM roles with minimal permissions
+- ECR image scanning enabled
+- Secrets managed via environment variables
+- No hardcoded credentials
+
+### Data Security
+- Redis encryption at rest
+- S3 bucket access via IAM roles
+- CloudWatch logs retention (30 days)
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**1. Deployment Fails:**
+```bash
+# Check CloudFormation events
+aws cloudformation describe-stack-events \
+  --stack-name video-clip-generator-production-infrastructure
+
+# Check ECS service status
+aws ecs describe-services \
+  --cluster video-clip-generator-production \
+  --services video-clip-generator-production-api
+```
+
+**2. Application Not Responding:**
+```bash
+# Check task logs
+aws logs tail /ecs/video-clip-generator-production --follow
+
+# Check task health
+aws ecs describe-tasks \
+  --cluster video-clip-generator-production \
+  --tasks $(aws ecs list-tasks --cluster video-clip-generator-production --query 'taskArns[0]' --output text)
+```
+
+**3. High Costs:**
+```bash
+# Scale down for testing
+aws ecs update-service \
+  --cluster video-clip-generator-production \
+  --service video-clip-generator-production-api \
+  --desired-count 1
+
+aws ecs update-service \
+  --cluster video-clip-generator-production \
+  --service video-clip-generator-production-worker \
+  --desired-count 1
+```
+
+### Getting Support
+
+1. **Check GitHub Actions logs** for deployment issues
+2. **Review CloudWatch logs** for application errors
+3. **Monitor CloudFormation events** for infrastructure issues
+4. **Check ECS service events** for container problems
+
+## 🧹 Cleanup
+
+**To delete all AWS resources and stop charges:**
+
+```bash
+cd deployment
+chmod +x cleanup.sh
+./cleanup.sh
+```
+
+**This will delete:**
+- ECS Cluster and Services
+- Load Balancer and VPC
+- ECR Repositories
+- Redis Cluster
+- CloudWatch Logs
+
+**Note:** S3 bucket is preserved to keep your videos safe.
+
+## 🔄 Updates and Redeployment
+
+### Automatic Updates
+- Push to `main` branch triggers automatic deployment
+- GitHub Actions handles building and deploying new versions
+- Zero-downtime rolling updates
+
+### Manual Updates
+```bash
+# Redeploy with latest code
+cd deployment
+./deploy.sh
+
+# Or force new deployment without code changes
+aws ecs update-service \
+  --cluster video-clip-generator-production \
+  --service video-clip-generator-production-api \
+  --force-new-deployment
+```
+
+## 🌐 Adding Custom Domain
+
+**To use your own domain instead of AWS-generated URL:**
+
+1. **Get SSL Certificate:**
+   ```bash
+   # Request certificate in ACM
+   aws acm request-certificate \
+     --domain-name yourdomain.com \
+     --validation-method DNS
+   ```
+
+2. **Update CloudFormation:**
+   - Add certificate ARN to `cloudformation-infrastructure.yml`
+   - Add HTTPS listener to load balancer
+   - Update Route53 DNS records
+
+3. **Redeploy:**
+   ```bash
+   ./deploy.sh
+   ```
+
+---
+
+## 🎉 Success! 
+
+Your Video Clip Generator is now running on AWS Fargate with:
+- ✅ Automatic scaling
+- ✅ High availability  
+- ✅ Production monitoring
+- ✅ Cost optimization
+- ✅ CI/CD pipeline
+
+**Happy video processing! 🎬✨** 

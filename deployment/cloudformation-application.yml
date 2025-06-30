@@ -1,0 +1,337 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Video Clip Generator - ECS Services and Task Definitions'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: video-clip-generator
+    Description: Name of the project
+  
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [production, staging]
+    Description: Environment name
+
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Docker image tag to deploy
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: Number of API instances to run
+
+  WorkerDesiredCount:
+    Type: Number
+    Default: 1
+    Description: Number of worker instances to run
+
+Resources:
+  # ECR Repository for API
+  ECRRepositoryAPI:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/${Environment}/api
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1
+                },
+                "action": {
+                  "type": "expire"
+                }
+              },
+              {
+                "rulePriority": 2,
+                "selection": {
+                  "tagStatus": "tagged",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+  # ECR Repository for Worker
+  ECRRepositoryWorker:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/${Environment}/worker
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1
+                },
+                "action": {
+                  "type": "expire"
+                }
+              },
+              {
+                "rulePriority": 2,
+                "selection": {
+                  "tagStatus": "tagged",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+  # Task Definition for API
+  APITaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-${Environment}-api
+      Cpu: 512
+      Memory: 1024
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: 
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskExecutionRole
+      TaskRoleArn:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskRole
+      ContainerDefinitions:
+        - Name: api
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryAPI}:${ImageTag}
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+          Environment:
+            - Name: STORAGE_TYPE
+              Value: s3
+            - Name: S3_BUCKET_NAME
+              Value: trod-video-clips
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: DATABASE_URL
+              Value: sqlite:///./storage/app.db
+            - Name: API_HOST
+              Value: 0.0.0.0
+            - Name: API_PORT
+              Value: "8000"
+            - Name: DEFAULT_NUM_CLIPS
+              Value: "3"
+            - Name: DEFAULT_RATIO
+              Value: "16:9"
+            - Name: MAX_FILE_SIZE
+              Value: "500"
+            - Name: DEBUG
+              Value: "false"
+            - Name: REDIS_URL
+              Value: !Sub 
+                - redis://${RedisEndpoint}:6379/0
+                - RedisEndpoint:
+                    Fn::ImportValue: !Sub ${ProjectName}-${Environment}-RedisEndpoint
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:8000/api/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+
+  # Task Definition for Worker
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-${Environment}-worker
+      Cpu: 1024
+      Memory: 2048
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: 
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskExecutionRole
+      TaskRoleArn:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskRole
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryWorker}:${ImageTag}
+          Essential: true
+          Environment:
+            - Name: STORAGE_TYPE
+              Value: s3
+            - Name: S3_BUCKET_NAME
+              Value: trod-video-clips
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: DATABASE_URL
+              Value: sqlite:///./storage/app.db
+            - Name: WHISPER_MODEL_SIZE
+              Value: base
+            - Name: YOLO_MODEL
+              Value: yolov8n.pt
+            - Name: AI_DEVICE
+              Value: cpu
+            - Name: CELERY_WORKER_CONCURRENCY
+              Value: "1"
+            - Name: CELERY_LOG_LEVEL
+              Value: info
+            - Name: CELERY_TASK_TIME_LIMIT
+              Value: "3600"
+            - Name: REDIS_URL
+              Value: !Sub 
+                - redis://${RedisEndpoint}:6379/0
+                - RedisEndpoint:
+                    Fn::ImportValue: !Sub ${ProjectName}-${Environment}-RedisEndpoint
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+          Command:
+            - celery
+            - -A
+            - tasks
+            - worker
+            - --loglevel=info
+            - --concurrency=1
+
+  # ECS Service for API
+  APIService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${ProjectName}-${Environment}-api
+      Cluster:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSCluster
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-FargateSecurityGroup
+          Subnets:
+            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet1
+            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet2
+      TaskDefinition: !Ref APITaskDefinition
+      LoadBalancers:
+        - ContainerName: api
+          ContainerPort: 8000
+          TargetGroupArn:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-TargetGroup
+      HealthCheckGracePeriodSeconds: 120
+
+  # ECS Service for Worker
+  WorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${ProjectName}-${Environment}-worker
+      Cluster:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSCluster
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 0
+      DesiredCount: !Ref WorkerDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-FargateSecurityGroup
+          Subnets:
+            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet1
+            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet2
+      TaskDefinition: !Ref WorkerTaskDefinition
+
+  # Auto Scaling for API
+  APIScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub service/${ProjectName}-${Environment}/${ProjectName}-${Environment}-api
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  # CPU-based scaling policy for API
+  APIScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub ${ProjectName}-${Environment}-api-cpu-scaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref APIScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleOutCooldown: 300
+        ScaleInCooldown: 300
+
+  # Auto Scaling for Worker (based on queue depth)
+  WorkerScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 5
+      MinCapacity: 1
+      ResourceId: !Sub service/${ProjectName}-${Environment}/${ProjectName}-${Environment}-worker
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+Outputs:
+  APIServiceName:
+    Description: API service name
+    Value: !Sub ${ProjectName}-${Environment}-api
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-APIService
+
+  WorkerServiceName:
+    Description: Worker service name
+    Value: !Sub ${ProjectName}-${Environment}-worker
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-WorkerService
+
+  ECRRepositoryAPIURI:
+    Description: ECR repository URI for API
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryAPI}
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ECRRepositoryAPI
+
+  ECRRepositoryWorkerURI:
+    Description: ECR repository URI for Worker
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryWorker}
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ECRRepositoryWorker 
