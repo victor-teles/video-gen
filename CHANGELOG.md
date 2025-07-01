@@ -67,6 +67,10 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 ## [Unreleased]
 
 ### Fixed
+- Enhanced deployment script to handle existing stacks:
+  - Added cleanup of old stacks with previous naming convention
+  - Created reusable stack deletion function
+  - Improved error handling and logging
 - Shortened stack names and project prefix across all resources:
   - Changed project name from `video-clip-generator` to `vcg`
   - Changed infrastructure stack name to `vcg-{environment}-infra`
