@@ -2,13 +2,14 @@ name: Deploy to AWS Fargate
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
-  PROJECT_NAME: video-clip-generator
+  PROJECT_NAME: vcg
   ENVIRONMENT: production
 
 jobs:
@@ -109,20 +110,17 @@ jobs:
       id: deploy-infra
       run: |
         # Check if infrastructure stack exists and is in ROLLBACK_COMPLETE state
-        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-        
-        if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
+        if aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra 2>/dev/null | grep -q "ROLLBACK_COMPLETE"; then
           echo "Stack is in ROLLBACK_COMPLETE state. Deleting it first..."
-          aws cloudformation delete-stack --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure
-          echo "Waiting for stack deletion to complete..."
-          aws cloudformation wait stack-delete-complete --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure
+          aws cloudformation delete-stack --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra
+          aws cloudformation wait stack-delete-complete --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra
         fi
         
         # Deploy base infrastructure only
         echo "Deploying infrastructure stack..."
         if ! aws cloudformation deploy \
           --template-file deployment/cloudformation-infrastructure.yml \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra \
           --parameter-overrides \
             ProjectName=${PROJECT_NAME} \
             Environment=${ENVIRONMENT} \
@@ -131,7 +129,7 @@ jobs:
           
           echo "❌ Stack deployment failed. Fetching detailed error information..."
           aws cloudformation describe-stack-events \
-            --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
+            --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra \
             --query 'StackEvents[?ResourceStatus==`CREATE_FAILED` || ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
             --output text
           
@@ -139,20 +137,17 @@ jobs:
         fi
 
         # Check if application stack exists and is in ROLLBACK_COMPLETE state
-        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-        
-        if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
-          echo "Application stack is in ROLLBACK_COMPLETE state. Deleting it first..."
-          aws cloudformation delete-stack --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application
-          echo "Waiting for stack deletion to complete..."
-          aws cloudformation wait stack-delete-complete --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application
+        if aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app 2>/dev/null | grep -q "ROLLBACK_COMPLETE"; then
+          echo "Stack is in ROLLBACK_COMPLETE state. Deleting it first..."
+          aws cloudformation delete-stack --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app
+          aws cloudformation wait stack-delete-complete --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app
         fi
         
-        # Deploy application stack (ECR repos only, no services yet)
+        # Deploy application stack with zero desired count
         echo "Deploying application stack..."
         aws cloudformation deploy \
           --template-file deployment/cloudformation-application.yml \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app \
           --parameter-overrides \
             ProjectName=${PROJECT_NAME} \
             Environment=${ENVIRONMENT} \
@@ -164,17 +159,17 @@ jobs:
 
         # Get outputs
         ECR_API_URI=$(aws cloudformation describe-stacks \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app \
           --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryAPIURI`].OutputValue' \
           --output text)
         
         ECR_WORKER_URI=$(aws cloudformation describe-stacks \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app \
           --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryWorkerURI`].OutputValue' \
           --output text)
         
         LOAD_BALANCER_URL=$(aws cloudformation describe-stacks \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra \
           --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerUrl`].OutputValue' \
           --output text)
 
@@ -249,16 +244,15 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Update ECS services
+    - name: Update application stack with desired count
       run: |
-        # Update application stack with proper desired counts and latest images
         aws cloudformation deploy \
           --template-file deployment/cloudformation-application.yml \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app \
           --parameter-overrides \
             ProjectName=${PROJECT_NAME} \
             Environment=${ENVIRONMENT} \
-            ImageTag=${{ github.sha }} \
+            ImageTag=latest \
             DesiredCount=1 \
             WorkerDesiredCount=1 \
           --capabilities CAPABILITY_IAM \
@@ -340,11 +334,11 @@ jobs:
         }
         
         # Check and cleanup application stack first (it depends on infrastructure)
-        APP_STACK="${PROJECT_NAME}-${ENVIRONMENT}-application"
+        APP_STACK="${PROJECT_NAME}-${ENVIRONMENT}-app"
         delete_stack_if_exists $APP_STACK
         
         # Then check and cleanup infrastructure stack
-        INFRA_STACK="${PROJECT_NAME}-${ENVIRONMENT}-infrastructure"
+        INFRA_STACK="${PROJECT_NAME}-${ENVIRONMENT}-infra"
         delete_stack_if_exists $INFRA_STACK
         
         # Check if ECS services need cleanup

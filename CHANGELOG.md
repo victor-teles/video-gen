@@ -67,6 +67,11 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 ## [Unreleased]
 
 ### Fixed
+- Shortened stack names and project prefix across all resources:
+  - Changed project name from `video-clip-generator` to `vcg`
+  - Changed infrastructure stack name to `vcg-{environment}-infra`
+  - Changed application stack name to `vcg-{environment}-app`
+  - Updated all cross-stack references to use new names
 - Shortened resource names in application stack to comply with AWS limits:
   - Changed ECR repository names to use `vcg` prefix
   - Updated auto-scaling target resource IDs to use shorter names
