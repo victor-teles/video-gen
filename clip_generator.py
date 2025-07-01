@@ -26,6 +26,7 @@ import json
 import subprocess
 import tempfile
 import shutil
+import gc
 from pathlib import Path
 import cv2
 import numpy as np
@@ -65,6 +66,12 @@ except ImportError as e:
 # Import storage handler
 from storage_handler import StorageHandler
 
+def cleanup_memory():
+    """Force garbage collection and clear CUDA cache"""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 class ClipGenerator:
     """Main class for generating video clips with captions"""
     
@@ -75,20 +82,40 @@ class ClipGenerator:
         # Initialize storage handler
         self.storage = StorageHandler()
         
-        # Initialize ClipsAI components
-        self.transcriber = Transcriber()
-        self.clipfinder = ClipFinder()
+        # Initialize ClipsAI components (lazy loading for memory efficiency)
+        self.transcriber = None
+        self.clipfinder = None
         
-        # Initialize YOLO model if available
+        # Initialize YOLO model if available (lazy loading)
         self.yolo_model = None
-        if YOLO_AVAILABLE:
+        self._yolo_initialized = False
+    
+    def _init_transcriber(self):
+        """Lazy initialization of transcriber"""
+        if self.transcriber is None:
+            print("🔄 Initializing transcriber...")
+            self.transcriber = Transcriber()
+            print("✅ Transcriber initialized")
+    
+    def _init_clipfinder(self):
+        """Lazy initialization of clipfinder"""
+        if self.clipfinder is None:
+            print("🔄 Initializing clipfinder...")
+            self.clipfinder = ClipFinder()
+            print("✅ Clipfinder initialized")
+    
+    def _init_yolo(self):
+        """Lazy initialization of YOLO model"""
+        if YOLO_AVAILABLE and not self._yolo_initialized:
             try:
                 print("🔄 Loading YOLO model...")
-                self.yolo_model = YOLO("yolov8n.pt")  # Using nano model for speed
-                print("✓ YOLO model loaded successfully")
+                self.yolo_model = YOLO("yolov8n.pt")  # Using nano model for memory efficiency
+                self._yolo_initialized = True
+                print("✅ YOLO model loaded successfully")
             except Exception as e:
                 print(f"⚠️  Warning: Could not load YOLO model: {e}")
                 self.yolo_model = None
+                self._yolo_initialized = True
     
     def extract_high_quality_clip(self, input_file: str, output_file: str, 
                                 start_time: float, end_time: float) -> bool:
@@ -134,6 +161,9 @@ class ClipGenerator:
         """
         Intelligently crop video using YOLO object detection
         """
+        # Initialize YOLO if needed
+        self._init_yolo()
+        
         if not self.yolo_model:
             return self.simple_center_crop(input_file, output_file, target_ratio)
         
@@ -165,7 +195,7 @@ class ClipGenerator:
             
             # Sample frames for YOLO detection to determine optimal crop position
             frame_positions = []
-            sample_interval = max(1, total_frames // 20)  # Sample 20 frames throughout video
+            sample_interval = max(1, total_frames // 10)  # Sample 10 frames (reduced for memory efficiency)
             
             for frame_idx in range(0, total_frames, sample_interval):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -204,8 +234,15 @@ class ClipGenerator:
                         x_offset = int(weighted_center - target_width / 2)
                         x_offset = max(0, min(width - target_width, x_offset))
                         frame_positions.append(x_offset)
+                
+                # Clean up frame from memory after each detection
+                del frame, results
+                cleanup_memory()
             
             cap.release()
+            
+            # Final memory cleanup after YOLO processing
+            cleanup_memory()
             
             # Calculate final crop position (median of detected positions)
             if frame_positions:
@@ -399,16 +436,24 @@ class ClipGenerator:
                 
                 # Generate transcription
                 print("🎯 Generating transcription...")
+                self._init_transcriber()
                 transcription = self.transcriber.transcribe(input_video)
+                
+                # Clean up after transcription
+                cleanup_memory()
                 
                 # Find best clips
                 print("🔍 Finding best clips...")
+                self._init_clipfinder()
                 clips = self.clipfinder.find_clips(
                     transcription,
                     num_clips=num_clips,
                     min_duration=30,
                     max_duration=120
                 )
+                
+                # Clean up after clip finding
+                cleanup_memory()
                 
                 generated_clips = []
                 
@@ -458,10 +503,13 @@ class ClipGenerator:
                     else:
                         print(f"⚠️  Failed to save clip {i}")
                     
-                    # Clean up temporary files
+                    # Clean up temporary files and memory
                     temp_clip.unlink(missing_ok=True)
                     temp_cropped.unlink(missing_ok=True)
                     temp_caption.unlink(missing_ok=True)
+                    
+                    # Force memory cleanup after each clip
+                    cleanup_memory()
                 
                 return generated_clips
                 

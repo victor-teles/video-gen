@@ -149,8 +149,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub ${ProjectName}-${Environment}-worker
-      Cpu: 1024
-      Memory: 2048
+      Cpu: 2048
+      Memory: 4096
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -172,7 +172,7 @@ Resources:
             - Name: DATABASE_URL
               Value: postgresql://neondb_owner:npg_Uw1TjtnJOkD9@ep-holy-violet-a13ozjf7-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
             - Name: WHISPER_MODEL_SIZE
-              Value: base
+              Value: tiny
             - Name: YOLO_MODEL
               Value: yolov8n.pt
             - Name: AI_DEVICE
@@ -183,6 +183,14 @@ Resources:
               Value: info
             - Name: CELERY_TASK_TIME_LIMIT
               Value: "3600"
+            - Name: TORCH_CACHE_DIR
+              Value: "/tmp/torch_cache"
+            - Name: HF_CACHE_DIR
+              Value: "/tmp/hf_cache"
+            - Name: PYTORCH_CUDA_ALLOC_CONF
+              Value: "max_split_size_mb:128"
+            - Name: OMP_NUM_THREADS
+              Value: "2"
             - Name: REDIS_URL
               Value: !Sub 
                 - redis://${RedisEndpoint}:6379/0
