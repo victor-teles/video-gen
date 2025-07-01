@@ -21,13 +21,13 @@ python-dotenv==1.0.1
 clipsai
 git+https://github.com/m-bain/whisperx.git
 ultralytics
-opencv-python
+opencv-python==4.8.1.78
 torch
 torchvision
 torchaudio
 
 # Standard Libraries
-numpy
+numpy==1.24.3
 pathlib
 argparse 
 
