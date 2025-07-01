@@ -285,26 +285,22 @@ jobs:
       id: set-ecr-uri
       run: |
         if [ "${{ matrix.component }}" = "api" ]; then
-          echo "ecr-uri=${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}" >> $GITHUB_OUTPUT
-          echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
+          echo "ECR_REPOSITORY_URI=${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}" >> $GITHUB_ENV
+          echo "dockerfile=Dockerfile" >> $GITHUB_ENV
         else
-          echo "ecr-uri=${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}" >> $GITHUB_OUTPUT
-          echo "dockerfile=Dockerfile.worker" >> $GITHUB_OUTPUT
+          echo "ECR_REPOSITORY_URI=${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}" >> $GITHUB_ENV
+          echo "dockerfile=Dockerfile.worker" >> $GITHUB_ENV
         fi
 
     - name: Build and push Docker image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY_URI: ${{ steps.set-ecr-uri.outputs.ecr-uri }}
-        IMAGE_TAG: sha-${{ github.sha }}
       run: |
         # Build image
-        docker build -f ${{ steps.set-ecr-uri.outputs.dockerfile }} -t ${ECR_REPOSITORY_URI}:${IMAGE_TAG} .
-        docker tag ${ECR_REPOSITORY_URI}:${IMAGE_TAG} ${ECR_REPOSITORY_URI}:latest
+        docker build -f ${{ env.dockerfile }} -t ${{ env.ECR_REPOSITORY_URI }}:sha-${{ github.sha }} .
+        docker tag ${{ env.ECR_REPOSITORY_URI }}:sha-${{ github.sha }} ${{ env.ECR_REPOSITORY_URI }}:latest
         
         # Push images
-        docker push ${ECR_REPOSITORY_URI}:${IMAGE_TAG}
-        docker push ${ECR_REPOSITORY_URI}:latest
+        docker push ${{ env.ECR_REPOSITORY_URI }}:sha-${{ github.sha }}
+        docker push ${{ env.ECR_REPOSITORY_URI }}:latest
 
   # Deploy Application
   deploy-application:
