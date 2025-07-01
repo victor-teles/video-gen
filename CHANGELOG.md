@@ -67,6 +67,10 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 ## [Unreleased]
 
 ### Fixed
+- Updated cross-stack references in application stack:
+  - Changed all ImportValue references to use `vcg` prefix
+  - Updated default project name to `vcg`
+  - Fixed references to ECS, Redis, and networking resources
 - Improved stack deletion process:
   - Added detailed progress monitoring during stack deletion
   - Added resource listing before deletion
@@ -76,15 +80,6 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
   - Added cleanup of old stacks with previous naming convention
   - Created reusable stack deletion function
   - Improved error handling and logging
-- Shortened stack names and project prefix across all resources:
-  - Changed project name from `video-clip-generator` to `vcg`
-  - Changed infrastructure stack name to `vcg-{environment}-infra`
-  - Changed application stack name to `vcg-{environment}-app`
-  - Updated all cross-stack references to use new names
-- Shortened resource names in application stack to comply with AWS limits:
-  - Changed ECR repository names to use `vcg` prefix
-  - Updated auto-scaling target resource IDs to use shorter names
-  - Ensured consistent naming across infrastructure and application stacks
 - Removed unsupported `MultiAZ` property from Redis configuration
 - Fixed Redis configuration property names in CloudFormation template:
   - Changed `Description` to `ReplicationGroupDescription`

@@ -4,7 +4,7 @@ Description: 'Video Clip Generator - ECS Services and Task Definitions'
 Parameters:
   ProjectName:
     Type: String
-    Default: video-clip-generator
+    Default: vcg
     Description: Name of the project
   
   Environment:
@@ -114,9 +114,9 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: 
-        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskExecutionRole
+        Fn::ImportValue: !Sub vcg-${Environment}-ECSTaskExecutionRole
       TaskRoleArn:
-        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskRole
+        Fn::ImportValue: !Sub vcg-${Environment}-ECSTaskRole
       ContainerDefinitions:
         - Name: api
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryAPI}:${ImageTag}
@@ -149,12 +149,12 @@ Resources:
               Value: !Sub 
                 - redis://${RedisEndpoint}:6379/0
                 - RedisEndpoint:
-                    Fn::ImportValue: !Sub ${ProjectName}-${Environment}-RedisEndpoint
+                    Fn::ImportValue: !Sub vcg-${Environment}-RedisEndpoint
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group:
-                Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LogGroup
+                Fn::ImportValue: !Sub vcg-${Environment}-LogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: api
           HealthCheck:
@@ -177,9 +177,9 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: 
-        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskExecutionRole
+        Fn::ImportValue: !Sub vcg-${Environment}-ECSTaskExecutionRole
       TaskRoleArn:
-        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSTaskRole
+        Fn::ImportValue: !Sub vcg-${Environment}-ECSTaskRole
       ContainerDefinitions:
         - Name: worker
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryWorker}:${ImageTag}
@@ -209,12 +209,12 @@ Resources:
               Value: !Sub 
                 - redis://${RedisEndpoint}:6379/0
                 - RedisEndpoint:
-                    Fn::ImportValue: !Sub ${ProjectName}-${Environment}-RedisEndpoint
+                    Fn::ImportValue: !Sub vcg-${Environment}-RedisEndpoint
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group:
-                Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LogGroup
+                Fn::ImportValue: !Sub vcg-${Environment}-LogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: worker
           Command:
@@ -231,7 +231,7 @@ Resources:
     Properties:
       ServiceName: !Sub ${ProjectName}-${Environment}-api
       Cluster:
-        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSCluster
+        Fn::ImportValue: !Sub vcg-${Environment}-ECSCluster
       LaunchType: FARGATE
       DeploymentConfiguration:
         MaximumPercent: 200
@@ -241,16 +241,16 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           SecurityGroups:
-            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-FargateSecurityGroup
+            - Fn::ImportValue: !Sub vcg-${Environment}-FargateSecurityGroup
           Subnets:
-            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet1
-            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet2
+            - Fn::ImportValue: !Sub vcg-${Environment}-PublicSubnet1
+            - Fn::ImportValue: !Sub vcg-${Environment}-PublicSubnet2
       TaskDefinition: !Ref APITaskDefinition
       LoadBalancers:
         - ContainerName: api
           ContainerPort: 8000
           TargetGroupArn:
-            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-TargetGroup
+            Fn::ImportValue: !Sub vcg-${Environment}-TargetGroup
       HealthCheckGracePeriodSeconds: 120
 
   # ECS Service for Worker
@@ -259,7 +259,7 @@ Resources:
     Properties:
       ServiceName: !Sub ${ProjectName}-${Environment}-worker
       Cluster:
-        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-ECSCluster
+        Fn::ImportValue: !Sub vcg-${Environment}-ECSCluster
       LaunchType: FARGATE
       DeploymentConfiguration:
         MaximumPercent: 200
@@ -269,10 +269,10 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           SecurityGroups:
-            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-FargateSecurityGroup
+            - Fn::ImportValue: !Sub vcg-${Environment}-FargateSecurityGroup
           Subnets:
-            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet1
-            - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PublicSubnet2
+            - Fn::ImportValue: !Sub vcg-${Environment}-PublicSubnet1
+            - Fn::ImportValue: !Sub vcg-${Environment}-PublicSubnet2
       TaskDefinition: !Ref WorkerTaskDefinition
 
   # Auto Scaling for API
