@@ -67,7 +67,13 @@ Video Clip Generator is a FastAPI-based application that uses AI to automaticall
 - GET /health - Health check endpoint
 
 ## TODO Tracking
-- [ ] Monitor CI/CD pipeline performance
+- [x] Fix CI build-and-test import errors  
+- [x] Fix AWS credentials configuration
+- [x] Fix CloudFormation Redis endpoint reference
+- [x] Fix deployment order (infrastructure → images → services)
+- [x] Fix cleanup-on-failure error handling
+- [ ] Monitor complete deployment pipeline end-to-end
+- [ ] Test video processing functionality on AWS
 - [ ] Implement comprehensive error handling
 - [ ] Add video processing progress tracking
 - [ ] Enhance S3 security policies

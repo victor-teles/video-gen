@@ -15,6 +15,12 @@ All notable changes to this project will be documented in this file.
   - Changed `RedisCluster.RedisEndpoint.Address` to `RedisCluster.PrimaryEndPoint.Address`
   - ElastiCache ReplicationGroup uses `PrimaryEndPoint.Address` not `RedisEndpoint.Address`
 
+- **Deployment Order Issue**: Fixed infrastructure deployment sequence
+  - Split deployment into phases: infrastructure → build images → deploy services  
+  - Application stack initially deploys with DesiredCount=0 to create ECR repos
+  - Services are scaled up only after Docker images are built and pushed
+  - Fixed cleanup-on-failure to handle missing clusters/services gracefully
+
 ### Changed
 - **.github/workflows/deploy.yml**:
   - Enhanced basic dependency installation to include OpenCV and NumPy

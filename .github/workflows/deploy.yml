@@ -108,7 +108,7 @@ jobs:
     - name: Deploy infrastructure stack
       id: deploy-infra
       run: |
-        # Deploy base infrastructure
+        # Deploy base infrastructure only
         aws cloudformation deploy \
           --template-file deployment/cloudformation-infrastructure.yml \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
@@ -118,7 +118,7 @@ jobs:
           --capabilities CAPABILITY_IAM \
           --no-fail-on-empty-changeset
 
-        # Deploy application stack
+        # Deploy application stack (ECR repos only, no services yet)
         aws cloudformation deploy \
           --template-file deployment/cloudformation-application.yml \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
@@ -126,6 +126,8 @@ jobs:
             ProjectName=${PROJECT_NAME} \
             Environment=${ENVIRONMENT} \
             ImageTag=latest \
+            DesiredCount=0 \
+            WorkerDesiredCount=0 \
           --capabilities CAPABILITY_IAM \
           --no-fail-on-empty-changeset
 
@@ -218,17 +220,18 @@ jobs:
 
     - name: Update ECS services
       run: |
-        # Update API service
-        aws ecs update-service \
-          --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
-          --service ${PROJECT_NAME}-${ENVIRONMENT}-api \
-          --force-new-deployment
-
-        # Update Worker service
-        aws ecs update-service \
-          --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
-          --service ${PROJECT_NAME}-${ENVIRONMENT}-worker \
-          --force-new-deployment
+        # Update application stack with proper desired counts and latest images
+        aws cloudformation deploy \
+          --template-file deployment/cloudformation-application.yml \
+          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
+          --parameter-overrides \
+            ProjectName=${PROJECT_NAME} \
+            Environment=${ENVIRONMENT} \
+            ImageTag=${{ github.sha }} \
+            DesiredCount=1 \
+            WorkerDesiredCount=1 \
+          --capabilities CAPABILITY_IAM \
+          --no-fail-on-empty-changeset
 
     - name: Wait for deployment to complete
       run: |
@@ -281,21 +284,34 @@ jobs:
       run: |
         echo "🚨 Deployment failed, checking if rollback is needed..."
         
-        # Check if services exist and rollback if needed
-        if aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-api >/dev/null 2>&1; then
-          echo "Rolling back API service..."
-          aws ecs update-service \
-            --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
-            --service ${PROJECT_NAME}-${ENVIRONMENT}-api \
-            --desired-count 1 \
-            --force-new-deployment
+        # Check if cluster exists first
+        if aws ecs describe-clusters --clusters ${PROJECT_NAME}-${ENVIRONMENT} --include TAGS >/dev/null 2>&1; then
+          echo "ECS cluster exists, checking services..."
+          
+          # Check if services exist and have running tasks
+          if aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-api >/dev/null 2>&1; then
+            RUNNING_COUNT=$(aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-api --query 'services[0].runningCount' --output text)
+            if [ "$RUNNING_COUNT" != "0" ] && [ "$RUNNING_COUNT" != "None" ]; then
+              echo "Scaling down API service..."
+              aws ecs update-service \
+                --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+                --service ${PROJECT_NAME}-${ENVIRONMENT}-api \
+                --desired-count 0
+            fi
+          fi
+          
+          if aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-worker >/dev/null 2>&1; then
+            RUNNING_COUNT=$(aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-worker --query 'services[0].runningCount' --output text)
+            if [ "$RUNNING_COUNT" != "0" ] && [ "$RUNNING_COUNT" != "None" ]; then
+              echo "Scaling down Worker service..."
+              aws ecs update-service \
+                --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
+                --service ${PROJECT_NAME}-${ENVIRONMENT}-worker \
+                --desired-count 0
+            fi
+          fi
+        else
+          echo "ECS cluster does not exist, no rollback needed."
         fi
         
-        if aws ecs describe-services --cluster ${PROJECT_NAME}-${ENVIRONMENT} --services ${PROJECT_NAME}-${ENVIRONMENT}-worker >/dev/null 2>&1; then
-          echo "Rolling back Worker service..."
-          aws ecs update-service \
-            --cluster ${PROJECT_NAME}-${ENVIRONMENT} \
-            --service ${PROJECT_NAME}-${ENVIRONMENT}-worker \
-            --desired-count 1 \
-            --force-new-deployment
-        fi 
+        echo "✅ Rollback completed" 
