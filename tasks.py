@@ -219,12 +219,21 @@ def process_video_task(self, job_id: int):
             
             # Step 1: Transcription
             progress_callback.update_transcription("Transcribing video...")
+            generator._init_transcriber()  # Initialize transcriber before using it
             transcription = generator.transcriber.transcribe(audio_file_path=str(input_file))
             progress_callback.update_transcription("Transcription completed")
             
+            # Clean up memory after transcription
+            from clip_generator import cleanup_memory
+            cleanup_memory()
+            
             # Step 2: Find clips
+            generator._init_clipfinder()  # Initialize clipfinder before using it
             clips = generator.clipfinder.find_clips(transcription=transcription)
             progress_callback.update_clip_finding(len(clips))
+            
+            # Clean up memory after clip finding
+            cleanup_memory()
             
             if not clips:
                 raise ValueError("No clips found in the video")
@@ -336,6 +345,9 @@ def process_video_task(self, job_id: int):
                 })
                 
                 progress_callback.update_clip_completed(i)
+                
+                # Clean up memory after each clip
+                cleanup_memory()
             
             # Cleanup temporary input file if downloaded from S3
             if temp_input_file and os.path.exists(temp_input_file.name):
