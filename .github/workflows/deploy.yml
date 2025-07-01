@@ -113,26 +113,56 @@ jobs:
         delete_stack() {
           local stack_name=$1
           if aws cloudformation describe-stacks --stack-name $stack_name 2>/dev/null; then
-            echo "Deleting stack $stack_name..."
+            echo "Found existing stack $stack_name, preparing for deletion..."
+            
+            # Get list of resources to monitor
+            echo "Listing stack resources..."
+            aws cloudformation list-stack-resources --stack-name $stack_name
+            
+            echo "Starting deletion of stack $stack_name..."
             aws cloudformation delete-stack --stack-name $stack_name
-            echo "Waiting for stack deletion to complete..."
-            aws cloudformation wait stack-delete-complete --stack-name $stack_name
+            
+            echo "Waiting for stack deletion to complete (this may take several minutes)..."
+            while true; do
+              if ! aws cloudformation describe-stacks --stack-name $stack_name 2>/dev/null; then
+                echo "Stack $stack_name has been deleted successfully"
+                break
+              fi
+              
+              echo "Stack deletion in progress... checking status"
+              aws cloudformation describe-stack-events \
+                --stack-name $stack_name \
+                --query 'StackEvents[?ResourceStatus==`DELETE_IN_PROGRESS`].[LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
+                --output text
+              
+              sleep 30
+            done
+          else
+            echo "Stack $stack_name does not exist, skipping deletion"
           fi
         }
 
         # Delete old stacks first (if they exist)
-        echo "Cleaning up old stacks..."
+        echo "Starting cleanup of old stacks..."
+        
+        # Delete application stack first as it depends on infrastructure
+        echo "Checking for old application stack..."
         delete_stack "${OLD_PROJECT_NAME}-${ENVIRONMENT}-application"
+        
+        # Then delete infrastructure stack
+        echo "Checking for old infrastructure stack..."
         delete_stack "${OLD_PROJECT_NAME}-${ENVIRONMENT}-infrastructure"
+        
+        echo "Old stack cleanup completed"
 
         # Check if new infrastructure stack exists and is in ROLLBACK_COMPLETE state
         if aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra 2>/dev/null | grep -q "ROLLBACK_COMPLETE"; then
-          echo "Stack is in ROLLBACK_COMPLETE state. Deleting it first..."
+          echo "New infrastructure stack is in ROLLBACK_COMPLETE state. Deleting it first..."
           delete_stack "${PROJECT_NAME}-${ENVIRONMENT}-infra"
         fi
 
         # Deploy base infrastructure only
-        echo "Deploying infrastructure stack..."
+        echo "Deploying new infrastructure stack..."
         if ! aws cloudformation deploy \
           --template-file deployment/cloudformation-infrastructure.yml \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra \
@@ -151,12 +181,14 @@ jobs:
           exit 1
         fi
 
+        echo "Infrastructure stack deployed successfully"
+
         # Check if new application stack exists and is in ROLLBACK_COMPLETE state
         if aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app 2>/dev/null | grep -q "ROLLBACK_COMPLETE"; then
-          echo "Stack is in ROLLBACK_COMPLETE state. Deleting it first..."
+          echo "Application stack is in ROLLBACK_COMPLETE state. Deleting it first..."
           delete_stack "${PROJECT_NAME}-${ENVIRONMENT}-app"
         fi
-        
+
         # Deploy application stack with zero desired count
         echo "Deploying application stack..."
         aws cloudformation deploy \
@@ -170,6 +202,8 @@ jobs:
             WorkerDesiredCount=0 \
           --capabilities CAPABILITY_IAM \
           --no-fail-on-empty-changeset
+
+        echo "Application stack deployed successfully"
 
         # Get outputs
         ECR_API_URI=$(aws cloudformation describe-stacks \

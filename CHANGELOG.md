@@ -67,6 +67,11 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 ## [Unreleased]
 
 ### Fixed
+- Improved stack deletion process:
+  - Added detailed progress monitoring during stack deletion
+  - Added resource listing before deletion
+  - Added periodic status updates during deletion
+  - Improved error handling and logging
 - Enhanced deployment script to handle existing stacks:
   - Added cleanup of old stacks with previous naming convention
   - Created reusable stack deletion function
