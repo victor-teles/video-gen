@@ -237,12 +237,16 @@ jobs:
 
         echo "Application stack deployed successfully"
 
-        # Get ECR repository URIs directly from the resources
+        # Get AWS account ID first
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        echo "AWS Account ID: ${AWS_ACCOUNT_ID}"
+        
+        # Construct ECR repository URIs using the account ID
         ECR_API_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/vcg/${ENVIRONMENT}/api"
         ECR_WORKER_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/vcg/${ENVIRONMENT}/worker"
         
-        # Get AWS account ID
-        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        echo "ECR API URI: ${ECR_API_URI}"
+        echo "ECR Worker URI: ${ECR_WORKER_URI}"
         
         # Set outputs
         echo "ecr-api-uri=${ECR_API_URI}" >> $GITHUB_OUTPUT
