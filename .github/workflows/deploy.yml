@@ -108,6 +108,7 @@ jobs:
         aws-region: us-east-1
 
     - name: Deploy infrastructure stack
+      id: deploy-infra
       run: |
         # Function to check if stack exists
         stack_exists() {
@@ -236,24 +237,23 @@ jobs:
 
         echo "Application stack deployed successfully"
 
-        # Get outputs
-        ECR_API_URI=$(aws cloudformation describe-stacks \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app \
-          --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryAPIURI`].OutputValue' \
-          --output text)
+        # Get ECR repository URIs directly from the resources
+        ECR_API_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/vcg/${ENVIRONMENT}/api"
+        ECR_WORKER_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/vcg/${ENVIRONMENT}/worker"
         
-        ECR_WORKER_URI=$(aws cloudformation describe-stacks \
-          --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-app \
-          --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryWorkerURI`].OutputValue' \
-          --output text)
+        # Get AWS account ID
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         
+        # Set outputs
+        echo "ecr-api-uri=${ECR_API_URI}" >> $GITHUB_OUTPUT
+        echo "ecr-worker-uri=${ECR_WORKER_URI}" >> $GITHUB_OUTPUT
+        
+        # Get load balancer URL from infrastructure stack
         LOAD_BALANCER_URL=$(aws cloudformation describe-stacks \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infra \
           --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerUrl`].OutputValue' \
           --output text)
-
-        echo "ecr-api-uri=${ECR_API_URI}" >> $GITHUB_OUTPUT
-        echo "ecr-worker-uri=${ECR_WORKER_URI}" >> $GITHUB_OUTPUT
+        
         echo "load-balancer-url=${LOAD_BALANCER_URL}" >> $GITHUB_OUTPUT
 
   # Build and Push Docker Images
@@ -281,26 +281,42 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Set ECR repository URI
-      id: set-ecr-uri
+    - name: Set build variables
       run: |
+        # Set the ECR repository URI based on component
         if [ "${{ matrix.component }}" = "api" ]; then
           echo "ECR_REPOSITORY_URI=${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}" >> $GITHUB_ENV
-          echo "dockerfile=Dockerfile" >> $GITHUB_ENV
+          echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV
         else
           echo "ECR_REPOSITORY_URI=${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}" >> $GITHUB_ENV
-          echo "dockerfile=Dockerfile.worker" >> $GITHUB_ENV
+          echo "DOCKERFILE=Dockerfile.worker" >> $GITHUB_ENV
         fi
+        
+        # Debug output
+        echo "Component: ${{ matrix.component }}"
+        echo "ECR Repository URI: ${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}"
+        echo "ECR Worker URI: ${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}"
 
     - name: Build and push Docker image
       run: |
+        # Debug output
+        echo "Building image for ${{ matrix.component }}"
+        echo "Using repository: $ECR_REPOSITORY_URI"
+        echo "Using dockerfile: $DOCKERFILE"
+        
+        # Ensure ECR repository URI is set
+        if [ -z "$ECR_REPOSITORY_URI" ]; then
+          echo "Error: ECR_REPOSITORY_URI is empty"
+          exit 1
+        fi
+        
         # Build image
-        docker build -f ${{ env.dockerfile }} -t ${{ env.ECR_REPOSITORY_URI }}:sha-${{ github.sha }} .
-        docker tag ${{ env.ECR_REPOSITORY_URI }}:sha-${{ github.sha }} ${{ env.ECR_REPOSITORY_URI }}:latest
+        docker build -f $DOCKERFILE -t $ECR_REPOSITORY_URI:sha-${{ github.sha }} .
+        docker tag $ECR_REPOSITORY_URI:sha-${{ github.sha }} $ECR_REPOSITORY_URI:latest
         
         # Push images
-        docker push ${{ env.ECR_REPOSITORY_URI }}:sha-${{ github.sha }}
-        docker push ${{ env.ECR_REPOSITORY_URI }}:latest
+        docker push $ECR_REPOSITORY_URI:sha-${{ github.sha }}
+        docker push $ECR_REPOSITORY_URI:latest
 
   # Deploy Application
   deploy-application:
