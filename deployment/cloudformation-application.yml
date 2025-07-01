@@ -33,7 +33,7 @@ Resources:
   ECRRepositoryAPI:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${ProjectName}/${Environment}/api
+      RepositoryName: !Sub vcg/${Environment}/api
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:
@@ -70,7 +70,7 @@ Resources:
   ECRRepositoryWorker:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${ProjectName}/${Environment}/worker
+      RepositoryName: !Sub vcg/${Environment}/worker
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:
@@ -281,7 +281,7 @@ Resources:
     Properties:
       MaxCapacity: 10
       MinCapacity: 1
-      ResourceId: !Sub service/${ProjectName}-${Environment}/${ProjectName}-${Environment}-api
+      ResourceId: !Sub service/vcg-${Environment}/vcg-${Environment}-api
       RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
@@ -306,7 +306,7 @@ Resources:
     Properties:
       MaxCapacity: 5
       MinCapacity: 1
-      ResourceId: !Sub service/${ProjectName}-${Environment}/${ProjectName}-${Environment}-worker
+      ResourceId: !Sub service/vcg-${Environment}/vcg-${Environment}-worker
       RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
