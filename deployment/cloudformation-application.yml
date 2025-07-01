@@ -110,7 +110,7 @@ Resources:
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: DATABASE_URL
-              Value: sqlite:///./storage/app.db
+              Value: postgresql://neondb_owner:npg_Uw1TjtnJOkD9@ep-holy-violet-a13ozjf7-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
             - Name: API_HOST
               Value: 0.0.0.0
             - Name: API_PORT
@@ -170,7 +170,7 @@ Resources:
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: DATABASE_URL
-              Value: sqlite:///./storage/app.db
+              Value: postgresql://neondb_owner:npg_Uw1TjtnJOkD9@ep-holy-violet-a13ozjf7-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
             - Name: WHISPER_MODEL_SIZE
               Value: base
             - Name: YOLO_MODEL

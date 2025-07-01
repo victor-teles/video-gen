@@ -379,4 +379,15 @@ def process_video_task(self, job_id: int):
 @worker_ready.connect
 def worker_ready_handler(sender=None, **kwargs):
     """Called when Celery worker is ready"""
+    from database import init_database
+    
+    print("🗄️  Initializing worker database...")
+    try:
+        init_database()
+        print("✅ Worker database initialized successfully")
+    except Exception as e:
+        print(f"❌ Failed to initialize worker database: {e}")
+        # Don't fail the worker startup, but log the error
+        logger.error(f"Database initialization failed: {e}")
+    
     print("🚀 Celery worker is ready and waiting for tasks...") 
