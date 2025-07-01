@@ -261,8 +261,8 @@ Resources:
     Type: AWS::ElastiCache::ReplicationGroup
     Properties:
       ReplicationGroupId: !Sub vcg-${Environment}-redis
-      Description: Redis cluster for video processing
-      NodeType: cache.t3.micro
+      ReplicationGroupDescription: Redis cluster for video processing
+      CacheNodeType: cache.t3.micro
       Engine: redis
       EngineVersion: '7.0'
       NumCacheClusters: 1
@@ -273,6 +273,7 @@ Resources:
       AtRestEncryptionEnabled: false
       TransitEncryptionEnabled: false
       AutomaticFailoverEnabled: false
+      MultiAZ: false
 
   # CloudWatch Log Group
   LogGroup:

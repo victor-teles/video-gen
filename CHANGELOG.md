@@ -67,6 +67,10 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 ## [Unreleased]
 
 ### Fixed
+- Fixed Redis configuration property names in CloudFormation template:
+  - Changed `Description` to `ReplicationGroupDescription`
+  - Changed `NodeType` to `CacheNodeType`
+  - Added `MultiAZ: false` configuration
 - Shortened AWS resource names to comply with length limits:
   - Changed target group name to `vcg-{environment}-tg`
   - Changed load balancer name to `vcg-{environment}-alb`
