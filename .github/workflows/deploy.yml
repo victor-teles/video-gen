@@ -287,19 +287,48 @@ jobs:
 
     - name: Set build variables
       run: |
+        # Debug - show all infrastructure outputs
+        echo "=== DEBUG: Infrastructure Job Outputs ==="
+        echo "ECR API URI from infrastructure: '${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}'"
+        echo "ECR Worker URI from infrastructure: '${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}'"
+        echo "Load Balancer URL from infrastructure: '${{ needs.deploy-infrastructure.outputs.load-balancer-url }}'"
+        echo "Component being built: ${{ matrix.component }}"
+        echo "======================================"
+        
         # Set the ECR repository URI based on component
         if [ "${{ matrix.component }}" = "api" ]; then
-          echo "ECR_REPOSITORY_URI=${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}" >> $GITHUB_ENV
-          echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV
+          ECR_URI="${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}"
+          DOCKERFILE="Dockerfile"
         else
-          echo "ECR_REPOSITORY_URI=${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}" >> $GITHUB_ENV
-          echo "DOCKERFILE=Dockerfile.worker" >> $GITHUB_ENV
+          ECR_URI="${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}"
+          DOCKERFILE="Dockerfile.worker"
         fi
         
-        # Debug output
-        echo "Component: ${{ matrix.component }}"
-        echo "ECR Repository URI: ${{ needs.deploy-infrastructure.outputs.ecr-api-uri }}"
-        echo "ECR Worker URI: ${{ needs.deploy-infrastructure.outputs.ecr-worker-uri }}"
+        # Additional validation and fallback
+        if [ -z "$ECR_URI" ] || [ "$ECR_URI" = "null" ]; then
+          echo "⚠️ ECR URI from infrastructure job is empty, constructing manually..."
+          
+          # Get AWS account ID
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "AWS Account ID: $AWS_ACCOUNT_ID"
+          
+          # Construct ECR URI manually
+          if [ "${{ matrix.component }}" = "api" ]; then
+            ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/vcg/${{ env.ENVIRONMENT }}/api"
+          else
+            ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/vcg/${{ env.ENVIRONMENT }}/worker"
+          fi
+          
+          echo "Manually constructed ECR URI: $ECR_URI"
+        fi
+        
+        # Set environment variables
+        echo "ECR_REPOSITORY_URI=$ECR_URI" >> $GITHUB_ENV
+        echo "DOCKERFILE=$DOCKERFILE" >> $GITHUB_ENV
+        
+        # Final debug output
+        echo "Final ECR Repository URI: $ECR_URI"
+        echo "Final Dockerfile: $DOCKERFILE"
 
     - name: Build and push Docker image
       run: |
