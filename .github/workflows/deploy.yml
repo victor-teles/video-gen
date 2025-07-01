@@ -296,7 +296,7 @@ jobs:
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY_URI: ${{ steps.set-ecr-uri.outputs.ecr-uri }}
-        IMAGE_TAG: ${{ github.sha }}
+        IMAGE_TAG: sha-${{ github.sha }}
       run: |
         # Build image
         docker build -f ${{ steps.set-ecr-uri.outputs.dockerfile }} -t ${ECR_REPOSITORY_URI}:${IMAGE_TAG} .
