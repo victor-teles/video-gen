@@ -67,6 +67,12 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 ## [Unreleased]
 
 ### Fixed
+- Major improvements to deployment script reliability:
+  - Added proper stack existence checking
+  - Removed misleading `--no-fail-on-empty-changeset` flag
+  - Added infrastructure stack output verification
+  - Added detailed error reporting for both stacks
+  - Added proper status checking before operations
 - Updated cross-stack references in application stack:
   - Changed all ImportValue references to use `vcg` prefix
   - Updated default project name to `vcg`
