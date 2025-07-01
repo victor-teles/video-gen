@@ -120,7 +120,7 @@ Resources:
             - Name: DEFAULT_RATIO
               Value: "16:9"
             - Name: MAX_FILE_SIZE
-              Value: "500"
+              Value: "524288000"
             - Name: DEBUG
               Value: "false"
             - Name: REDIS_URL

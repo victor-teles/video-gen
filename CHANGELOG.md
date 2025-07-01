@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [2024-01-XX] - Latest Deployment and Docker Build Fixes
 
 ### Fixed
+- **File Upload Size Limit**: Fixed MAX_FILE_SIZE configuration in CloudFormation
+  - Updated MAX_FILE_SIZE from "500" (500 bytes) to "524288000" (500MB in bytes)
+  - Fixed "File too large. Maximum size: 0MB" error during video uploads
+  - config.py expects the value in bytes, not megabytes
+
 - **Python Dependency Conflicts**: Fixed Docker build failures due to numpy version conflicts
   - Updated numpy from `==1.24.3` to `>=2.0.0` to satisfy whisperx requirement of `numpy>=2.0.2`
   - Changed opencv-python from exact version to `>=4.8.0` for better compatibility
