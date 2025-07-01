@@ -108,7 +108,18 @@ jobs:
     - name: Deploy infrastructure stack
       id: deploy-infra
       run: |
+        # Check if infrastructure stack exists and is in ROLLBACK_COMPLETE state
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+        
+        if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
+          echo "Stack is in ROLLBACK_COMPLETE state. Deleting it first..."
+          aws cloudformation delete-stack --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure
+        fi
+        
         # Deploy base infrastructure only
+        echo "Deploying infrastructure stack..."
         aws cloudformation deploy \
           --template-file deployment/cloudformation-infrastructure.yml \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
@@ -118,7 +129,18 @@ jobs:
           --capabilities CAPABILITY_IAM \
           --no-fail-on-empty-changeset
 
+        # Check if application stack exists and is in ROLLBACK_COMPLETE state
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+        
+        if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
+          echo "Application stack is in ROLLBACK_COMPLETE state. Deleting it first..."
+          aws cloudformation delete-stack --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application
+        fi
+        
         # Deploy application stack (ECR repos only, no services yet)
+        echo "Deploying application stack..."
         aws cloudformation deploy \
           --template-file deployment/cloudformation-application.yml \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application \
@@ -284,7 +306,39 @@ jobs:
       run: |
         echo "🚨 Deployment failed, checking if rollback is needed..."
         
-        # Check if cluster exists first
+        # Function to check stack status
+        check_stack_status() {
+          local stack_name=$1
+          aws cloudformation describe-stacks --stack-name $stack_name --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST"
+        }
+        
+        # Function to delete stack if it exists and is in a deletable state
+        delete_stack_if_exists() {
+          local stack_name=$1
+          local status=$(check_stack_status $stack_name)
+          
+          if [ "$status" != "DOES_NOT_EXIST" ]; then
+            echo "Found stack $stack_name in $status state"
+            if [ "$status" = "ROLLBACK_COMPLETE" ] || [ "$status" = "CREATE_FAILED" ] || [ "$status" = "ROLLBACK_FAILED" ]; then
+              echo "Deleting failed stack $stack_name..."
+              aws cloudformation delete-stack --stack-name $stack_name
+              echo "Waiting for stack deletion to complete..."
+              aws cloudformation wait stack-delete-complete --stack-name $stack_name
+            fi
+          else
+            echo "Stack $stack_name does not exist"
+          fi
+        }
+        
+        # Check and cleanup application stack first (it depends on infrastructure)
+        APP_STACK="${PROJECT_NAME}-${ENVIRONMENT}-application"
+        delete_stack_if_exists $APP_STACK
+        
+        # Then check and cleanup infrastructure stack
+        INFRA_STACK="${PROJECT_NAME}-${ENVIRONMENT}-infrastructure"
+        delete_stack_if_exists $INFRA_STACK
+        
+        # Check if ECS services need cleanup
         if aws ecs describe-clusters --clusters ${PROJECT_NAME}-${ENVIRONMENT} --include TAGS >/dev/null 2>&1; then
           echo "ECS cluster exists, checking services..."
           
@@ -311,7 +365,7 @@ jobs:
             fi
           fi
         else
-          echo "ECS cluster does not exist, no rollback needed."
+          echo "ECS cluster does not exist, no service cleanup needed."
         fi
         
-        echo "✅ Rollback completed" 
+        echo "✅ Cleanup completed" 

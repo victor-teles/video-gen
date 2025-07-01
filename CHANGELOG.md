@@ -21,6 +21,12 @@ All notable changes to this project will be documented in this file.
   - Services are scaled up only after Docker images are built and pushed
   - Fixed cleanup-on-failure to handle missing clusters/services gracefully
 
+- **Stack State Management**: Added robust stack state handling
+  - Auto-detect and delete stacks in ROLLBACK_COMPLETE state
+  - Added proper stack deletion order (application before infrastructure)
+  - Enhanced error handling for stack state transitions
+  - Added comprehensive cleanup for failed deployments
+
 ### Changed
 - **.github/workflows/deploy.yml**:
   - Enhanced basic dependency installation to include OpenCV and NumPy
