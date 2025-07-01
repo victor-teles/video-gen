@@ -168,6 +168,44 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 
 ## [Latest] - 2025-01-07
 
+### 🚀 Critical Memory Optimization & OOM Fix
+**RESOLVED**: Worker SIGKILL (Out of Memory) Issues During Video Processing
+
+The workers were being killed by the Linux kernel at 30% progress due to insufficient memory during AI model processing. This update comprehensively addresses memory management.
+
+#### **Memory Allocation Improvements**
+- **Increased Worker Memory**: 2GB → 4GB (`Memory: 2048` → `Memory: 4096`)
+- **Increased Worker CPU**: 1024 → 2048 (more processing power for AI models)
+- **Optimized WhisperX Model**: Changed from `base` to `tiny` model for memory efficiency
+
+#### **Memory Management Optimizations**
+- **Lazy Loading**: AI models (transcriber, clipfinder, YOLO) now load only when needed
+- **Memory Cleanup**: Added `cleanup_memory()` function with garbage collection and CUDA cache clearing
+- **Processing Optimization**: Reduced YOLO frame sampling from 20 to 10 frames
+- **Explicit Memory Management**: Added cleanup after each processing step
+
+#### **Environment Optimizations**
+```yaml
+TORCH_CACHE_DIR: "/tmp/torch_cache"
+HF_CACHE_DIR: "/tmp/hf_cache" 
+PYTORCH_CUDA_ALLOC_CONF: "max_split_size_mb:128"
+OMP_NUM_THREADS: "2"
+```
+
+**Files Modified**:
+- `deployment/cloudformation-application.yml`: Increased worker resources and added memory optimization env vars
+- `clip_generator.py`: Implemented lazy loading, memory cleanup, and optimized processing
+
+**Expected Impact**: 
+- ✅ Workers should no longer be killed by OOM during transcription
+- ✅ Video processing should complete successfully past 30%
+- ✅ Improved stability and reliability for all video sizes
+- ✅ More efficient resource usage
+
+---
+
+## [Latest] - 2025-01-07
+
 ### 🔥 Critical Database Fix
 **RESOLVED**: Worker "no such table: processing_jobs" Error
 
@@ -183,9 +221,7 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 
 **Impact**: 
 - ✅ Processing jobs will now complete successfully
-- ✅ Worker can access job data and update status
+- ✅ Worker can access same database as API
 - ✅ Consistent data persistence across all services
-
-This resolves the core issue where workers couldn't process videos due to missing database tables.
 
 --- 
