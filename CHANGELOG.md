@@ -63,3 +63,17 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 - [x] Create changelog documentation
 - [ ] Monitor next CI run for successful build
 - [ ] Verify deployment pipeline continues to work 
+
+## [Unreleased]
+
+### Fixed
+- Shortened AWS resource names to comply with length limits:
+  - Changed target group name to `vcg-{environment}-tg`
+  - Changed load balancer name to `vcg-{environment}-alb`
+  - Changed Redis cluster name to `vcg-{environment}-redis`
+  - Changed ECS cluster name to `vcg-{environment}`
+- Fixed Redis configuration in CloudFormation template:
+  - Changed `SubnetGroupName` to `CacheSubnetGroupName`
+  - Disabled encryption features to simplify deployment
+  - Added `AutomaticFailoverEnabled: false` for single-node setup
+- Enhanced deployment script with better error reporting for CloudFormation failures 

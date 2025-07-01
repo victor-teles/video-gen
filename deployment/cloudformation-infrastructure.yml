@@ -142,7 +142,7 @@ Resources:
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub ${ProjectName}-${Environment}-alb
+      Name: !Sub vcg-${Environment}-alb
       Scheme: internet-facing
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
@@ -160,7 +160,7 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${ProjectName}-${Environment}-tg
+      Name: !Sub vcg-${Environment}-tg
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: /api/health
       HealthCheckProtocol: HTTP
@@ -190,7 +190,7 @@ Resources:
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub ${ProjectName}-${Environment}
+      ClusterName: !Sub vcg-${Environment}
       CapacityProviders:
         - FARGATE
         - FARGATE_SPOT
@@ -260,7 +260,7 @@ Resources:
   RedisCluster:
     Type: AWS::ElastiCache::ReplicationGroup
     Properties:
-      ReplicationGroupId: !Sub ${ProjectName}-${Environment}-redis
+      ReplicationGroupId: !Sub vcg-${Environment}-redis
       Description: Redis cluster for video processing
       NodeType: cache.t3.micro
       Engine: redis
