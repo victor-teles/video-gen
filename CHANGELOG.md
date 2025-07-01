@@ -168,6 +168,30 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
 
 ## [Latest] - 2025-01-07
 
+### 🔧 Critical Fix: Lazy Loading Initialization
+**RESOLVED**: `AttributeError: 'NoneType' object has no attribute 'transcribe'`
+
+Fixed a critical bug introduced with the memory optimization where the lazy loading implementation wasn't being called correctly in the worker tasks.
+
+**Root Cause**: The `tasks.py` file was trying to use `generator.transcriber.transcribe()` directly, but with lazy loading, `generator.transcriber` was still `None` until `_init_transcriber()` was called.
+
+**Files Modified**:
+- `tasks.py`: Added proper initialization calls for transcriber and clipfinder
+  - Added `generator._init_transcriber()` before using transcriber
+  - Added `generator._init_clipfinder()` before using clipfinder  
+  - Added memory cleanup calls after transcription and clip finding
+  - Added memory cleanup after each clip processing
+
+**Impact**:
+- ✅ Workers will now properly initialize AI models before use
+- ✅ Video processing should proceed past transcription step
+- ✅ Memory optimizations maintained while ensuring functionality
+- ✅ No changes to core processing logic or API functionality
+
+---
+
+## [Latest] - 2025-01-07
+
 ### 🚀 Critical Memory Optimization & OOM Fix
 **RESOLVED**: Worker SIGKILL (Out of Memory) Issues During Video Processing
 
