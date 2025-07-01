@@ -215,31 +215,12 @@ def process_video_task(self, job_id: int):
             progress_callback = ProgressCallback(db, job_id, job.num_clips_requested)
             
             # Initialize clip generator
-            print(f"🔄 Creating ClipGenerator with output_dir: {output_dir}")
             generator = ClipGenerator(str(output_dir))
-            print(f"✅ ClipGenerator created: {generator}")
-            print(f"🔍 ClipGenerator type: {type(generator)}")
             
             # Step 1: Transcription
             progress_callback.update_transcription("Transcribing video...")
-            print("🔄 About to call generator._init_transcriber()")
-            try:
-                generator._init_transcriber()  # Initialize transcriber before using it
-                print("✅ Transcriber initialization completed")
-                print(f"🔍 Transcriber object: {generator.transcriber}")
-                print(f"🔍 Transcriber type: {type(generator.transcriber)}")
-            except Exception as init_error:
-                print(f"❌ Error during transcriber initialization: {init_error}")
-                raise
-            
-            print("🔄 About to call transcriber.transcribe()")
-            try:
-                transcription = generator.transcriber.transcribe(audio_file_path=str(input_file))
-                print("✅ Transcription completed successfully")
-            except Exception as transcribe_error:
-                print(f"❌ Error during transcription: {transcribe_error}")
-                print(f"🔍 Generator.transcriber is: {generator.transcriber}")
-                raise
+            generator._init_transcriber()  # Initialize transcriber before using it
+            transcription = generator.transcriber.transcribe(audio_file_path=str(input_file))
             progress_callback.update_transcription("Transcription completed")
             
             # Clean up memory after transcription
