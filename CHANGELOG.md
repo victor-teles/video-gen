@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2024-01-XX] - CI/CD Build Fixes
+## [2024-01-XX] - CI/CD Build and Deployment Fixes
 
 ### Fixed
 - **GitHub Actions CI Build Failure**: Resolved import errors in build-and-test phase
@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
   - Added `numpy==1.24.3` to basic CI dependencies
   - Updated import tests to handle heavy ML dependencies gracefully
   - Split import tests to isolate core modules from ML-dependent modules
+
+- **CloudFormation Template Error**: Fixed Redis cluster endpoint reference
+  - Changed `RedisCluster.RedisEndpoint.Address` to `RedisCluster.PrimaryEndPoint.Address`
+  - ElastiCache ReplicationGroup uses `PrimaryEndPoint.Address` not `RedisEndpoint.Address`
 
 ### Changed
 - **.github/workflows/deploy.yml**:
