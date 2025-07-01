@@ -120,14 +120,23 @@ jobs:
         
         # Deploy base infrastructure only
         echo "Deploying infrastructure stack..."
-        aws cloudformation deploy \
+        if ! aws cloudformation deploy \
           --template-file deployment/cloudformation-infrastructure.yml \
           --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
           --parameter-overrides \
             ProjectName=${PROJECT_NAME} \
             Environment=${ENVIRONMENT} \
           --capabilities CAPABILITY_IAM \
-          --no-fail-on-empty-changeset
+          --no-fail-on-empty-changeset; then
+          
+          echo "❌ Stack deployment failed. Fetching detailed error information..."
+          aws cloudformation describe-stack-events \
+            --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-infrastructure \
+            --query 'StackEvents[?ResourceStatus==`CREATE_FAILED` || ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+            --output text
+          
+          exit 1
+        fi
 
         # Check if application stack exists and is in ROLLBACK_COMPLETE state
         STACK_STATUS=$(aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-${ENVIRONMENT}-application --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")

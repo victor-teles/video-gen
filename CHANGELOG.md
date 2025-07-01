@@ -27,6 +27,12 @@ All notable changes to this project will be documented in this file.
   - Enhanced error handling for stack state transitions
   - Added comprehensive cleanup for failed deployments
 
+- Fixed Redis configuration in CloudFormation template:
+  - Changed `SubnetGroupName` to `CacheSubnetGroupName`
+  - Disabled encryption features to simplify deployment
+  - Added `AutomaticFailoverEnabled: false` for single-node setup
+- Enhanced deployment script with better error reporting for CloudFormation failures
+
 ### Changed
 - **.github/workflows/deploy.yml**:
   - Enhanced basic dependency installation to include OpenCV and NumPy

@@ -267,11 +267,12 @@ Resources:
       EngineVersion: '7.0'
       NumCacheClusters: 1
       Port: 6379
-      SubnetGroupName: !Ref RedisSubnetGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
       SecurityGroupIds:
         - !Ref RedisSecurityGroup
-      AtRestEncryptionEnabled: true
+      AtRestEncryptionEnabled: false
       TransitEncryptionEnabled: false
+      AutomaticFailoverEnabled: false
 
   # CloudWatch Log Group
   LogGroup:
