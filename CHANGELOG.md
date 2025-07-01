@@ -165,3 +165,27 @@ The fix ensures OpenCV and NumPy are available in CI while still allowing heavy 
   - Disabled encryption features to simplify deployment
   - Added `AutomaticFailoverEnabled: false` for single-node setup
 - Enhanced deployment script with better error reporting for CloudFormation failures 
+
+## [Latest] - 2025-01-07
+
+### 🔥 Critical Database Fix
+**RESOLVED**: Worker "no such table: processing_jobs" Error
+
+- **Fixed Database Configuration**: Updated CloudFormation to use PostgreSQL (Neon) instead of SQLite for both API and Worker
+- **Added Worker Database Initialization**: Worker now properly initializes database tables on startup
+- **Shared Database**: API and Worker now use the same PostgreSQL database ensuring consistent data access
+
+**Database URL**: `postgresql://neondb_owner:npg_Uw1TjtnJOkD9@ep-holy-violet-a13ozjf7-pooler.ap-southeast-1.aws.neon.tech/neondb`
+
+**Files Modified**:
+- `deployment/cloudformation-application.yml`: Updated DATABASE_URL for both API and Worker containers
+- `tasks.py`: Added `init_database()` call in worker ready handler
+
+**Impact**: 
+- ✅ Processing jobs will now complete successfully
+- ✅ Worker can access job data and update status
+- ✅ Consistent data persistence across all services
+
+This resolves the core issue where workers couldn't process videos due to missing database tables.
+
+--- 
