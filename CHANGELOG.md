@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [2024-01-XX] - Latest Deployment and Docker Build Fixes
 
 ### Fixed
+- **Python Dependency Conflicts**: Fixed Docker build failures due to numpy version conflicts
+  - Updated numpy from `==1.24.3` to `>=2.0.0` to satisfy whisperx requirement of `numpy>=2.0.2`
+  - Changed opencv-python from exact version to `>=4.8.0` for better compatibility
+  - Relaxed AWS dependencies (boto3, botocore, s3transfer) to use minimum versions
+  - Updated requests to use minimum version for better dependency resolution
+
 - **ECR Lifecycle Policy Issues**: Fixed invalid lifecycle policies in CloudFormation
   - Removed problematic "tagged" image rules that required `tagPrefixList` or `tagPatternList`
   - Kept only valid "untagged" image cleanup rules to remove old untagged images after 1 day
@@ -25,8 +31,15 @@ All notable changes to this project will be documented in this file.
   - Changed from retrieving URIs from CloudFormation outputs to building them dynamically
   - Fixed order of operations: get AWS account ID → construct URIs → use in build process
   - Added debug output to troubleshoot ECR URI issues
+  - Added fallback mechanism to construct ECR URIs if job outputs are empty
 
 ### Changed
+- **requirements.txt**:
+  - Updated numpy to `>=2.0.0` for compatibility with whisperx 3.4.2
+  - Relaxed opencv-python version constraint to `>=4.8.0`
+  - Updated AWS dependencies to use minimum versions for better flexibility
+  - Updated requests to use minimum version constraint
+
 - **deployment/cloudformation-application.yml**:
   - Simplified ECR lifecycle policies to only include untagged image cleanup
   - Fixed ECS scaling target resource IDs to use consistent naming
@@ -37,16 +50,19 @@ All notable changes to this project will be documented in this file.
   - Added comprehensive debug output for troubleshooting build issues
   - Fixed environment variable passing between GitHub Actions steps
   - Added validation to fail fast if ECR repository URI is empty
+  - Added fallback ECR URI construction mechanism
 
 ### Technical Details
 The deployment was failing due to multiple issues:
 
-1. **ECR Lifecycle Policy Validation**: AWS requires `tagPrefixList` or `tagPatternList` when using `tagStatus=TAGGED` in lifecycle policies
-2. **ECS Scaling Target References**: The `ResourceId` must exactly match the ECS service name format
-3. **Docker Tag Format**: Docker tags have strict naming requirements and cannot start with numbers
-4. **Variable Passing**: GitHub Actions environment variables weren't being set correctly between steps
+1. **Python Dependency Conflicts**: The newer whisperx version requires numpy>=2.0.2, but we had pinned numpy to 1.24.3
+2. **ECR Lifecycle Policy Validation**: AWS requires `tagPrefixList` or `tagPatternList` when using `tagStatus=TAGGED` in lifecycle policies
+3. **ECS Scaling Target References**: The `ResourceId` must exactly match the ECS service name format
+4. **Docker Tag Format**: Docker tags have strict naming requirements and cannot start with numbers
+5. **Variable Passing**: GitHub Actions environment variables weren't being set correctly between steps
 
 ### TODO Updates
+- [x] Fix Python dependency conflicts in requirements.txt
 - [x] Fix ECR lifecycle policy validation errors
 - [x] Fix ECS service scaling target resource references
 - [x] Fix Docker image tag format issues
