@@ -175,8 +175,8 @@ Resources:
         - Key: deregistration_delay.timeout_seconds
           Value: '60'
 
-  # Load Balancer Listener
-  LoadBalancerListener:
+  # Load Balancer Listeners
+  LoadBalancerListenerHTTP:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
@@ -184,6 +184,16 @@ Resources:
           Type: 'forward'
       LoadBalancerArn: !Ref LoadBalancer
       Port: 80
+      Protocol: HTTP
+
+  LoadBalancerListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: 'forward'
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
       Protocol: HTTP
 
   # ECS Cluster
@@ -311,6 +321,12 @@ Outputs:
     Value: !Sub http://${LoadBalancer.DNSName}
     Export:
       Name: !Sub ${ProjectName}-${Environment}-LoadBalancerUrl
+
+  LoadBalancerDNSName:
+    Description: Load balancer DNS name for external domain configuration
+    Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-LoadBalancerDNSName
 
   TargetGroup:
     Description: Target group ARN

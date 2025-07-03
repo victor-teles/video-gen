@@ -51,6 +51,7 @@ Video Clip Generator is a FastAPI-based application that uses AI to automaticall
 - deployment/s3_storage.py - S3 operations class
 - deployment/list_s3_files.py - S3 bucket inspection tool
 - deployment/README.md - Deployment documentation
+- deployment/DOMAIN_SETUP.md - Custom domain configuration guide
 - storage_handler.py - Storage abstraction layer
 - .github/workflows/deploy.yml - CI/CD pipeline
 
@@ -61,10 +62,13 @@ Video Clip Generator is a FastAPI-based application that uses AI to automaticall
 - Redis URL for Celery
 
 ## Endpoints
-- POST /process-video - Main video processing endpoint
-- GET /status/{job_id} - Job status checking
-- GET /download/{job_id} - Download processed results
-- GET /health - Health check endpoint
+- Base URL: https://api.trod.ai (production) / http://localhost:8000 (development)
+- POST /api/upload-video - Main video processing endpoint
+- GET /api/status/{job_id} - Job status checking
+- GET /api/download/clips/{job_id}/{filename} - Download processed clips
+- GET /api/download/captions/{job_id}/{filename} - Download caption files
+- GET /api/health - Health check endpoint
+- GET /docs - API documentation
 
 ## TODO Tracking
 - [x] Fix CI build-and-test import errors  

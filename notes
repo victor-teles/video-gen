@@ -1,3 +1,12 @@
+# create virtual environment
+python -m venv clip_generator_env
+
+# install dependencies
+pip install -r requirements.txt
+
+# activate virtual environment
+.\clip_generator_env\Scripts\Activate
+
 start api
 python start_api.py # that installs dependancies, starts celery, and also start api directly automated system
 

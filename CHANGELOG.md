@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2024-01-XX] - Domain Configuration Support
+
+### Added
+- **Custom Domain Support**: Added infrastructure support for `api.trod.ai` domain
+  - Added HTTPS listener (port 443) to Application Load Balancer
+  - Added load balancer DNS name output for external DNS configuration
+  - Created comprehensive domain setup guide in `deployment/DOMAIN_SETUP.md`
+  - Added domain-related configuration options in `env.template`
+
+### Changed
+- **Load Balancer Configuration**: Enhanced to support both HTTP and HTTPS traffic
+  - Modified CloudFormation infrastructure to include HTTPS listener on port 443
+  - Both HTTP (80) and HTTPS (443) listeners forward to FastAPI containers
+  - Updated security groups already had port 443 configured
+- **Documentation**: Updated architecture blueprint with domain endpoint information
+  - Updated API endpoints to show production domain URLs
+  - Added domain setup guide to file registry
+
+### Configuration
+- **External DNS Setup**: Point `api.trod.ai` to AWS Load Balancer DNS name
+- **SSL Management**: SSL certificates managed externally (not AWS Certificate Manager)
+- **CORS Configuration**: Updated guidance for production domain CORS settings
+
 ## [2024-01-XX] - Latest Deployment and Docker Build Fixes
 
 ### Fixed
