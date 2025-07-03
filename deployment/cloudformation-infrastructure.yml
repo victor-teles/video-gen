@@ -176,7 +176,7 @@ Resources:
           Value: '60'
 
   # Load Balancer Listeners
-  LoadBalancerListenerHTTP:
+  LoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
