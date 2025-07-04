@@ -76,8 +76,16 @@ Video Clip Generator is a FastAPI-based application that uses AI to automaticall
 - [x] Fix CloudFormation Redis endpoint reference
 - [x] Fix deployment order (infrastructure → images → services)
 - [x] Fix cleanup-on-failure error handling
-- [ ] Monitor complete deployment pipeline end-to-end
-- [ ] Test video processing functionality on AWS
+- [x] Add HTTPS support to load balancer for custom domain
+- [x] Create domain setup documentation  
+- [x] Fix CloudFormation resource naming conflict for load balancer listeners
+- [ ] Monitor infrastructure deployment with HTTPS changes
+- [ ] Get load balancer DNS name from deployed infrastructure
+- [ ] Configure external DNS records for api.trod.ai
+- [ ] Configure SSL at external provider level
+- [ ] Test domain configuration and HTTPS endpoints
+- [ ] Update CORS settings for production domain
+- [ ] Test video processing functionality on custom domain
 - [ ] Implement comprehensive error handling
 - [ ] Add video processing progress tracking
 - [ ] Enhance S3 security policies

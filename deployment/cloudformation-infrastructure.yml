@@ -186,16 +186,6 @@ Resources:
       Port: 80
       Protocol: HTTP
 
-  LoadBalancerListenerHTTPS:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-        - TargetGroupArn: !Ref TargetGroup
-          Type: 'forward'
-      LoadBalancerArn: !Ref LoadBalancer
-      Port: 443
-      Protocol: HTTP
-
   # ECS Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
