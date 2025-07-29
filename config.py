@@ -85,4 +85,62 @@ AI_DEVICE = os.getenv("AI_DEVICE", "auto")
 # Development settings
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 AUTO_RELOAD = os.getenv("AUTO_RELOAD", "True").lower() == "true"
-SHOW_ERROR_DETAILS = os.getenv("SHOW_ERROR_DETAILS", "False").lower() == "true" 
+SHOW_ERROR_DETAILS = os.getenv("SHOW_ERROR_DETAILS", "False").lower() == "true"
+
+# ============================================================================
+# FACELESS VIDEO GENERATION SETTINGS
+# ============================================================================
+
+# API Keys for Faceless Video Generation
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+FAL_KEY = os.getenv("FAL_KEY")  # Optional alternative
+
+# Story Generation Settings
+STORY_MODEL = os.getenv("STORY_MODEL", "gpt-4")
+STORY_TEMPERATURE = float(os.getenv("STORY_TEMPERATURE", "0.9"))
+STORY_CHAR_LIMIT_MIN = int(os.getenv("STORY_CHAR_LIMIT_MIN", "700"))
+STORY_CHAR_LIMIT_MAX = int(os.getenv("STORY_CHAR_LIMIT_MAX", "800"))
+MAX_SCENES = int(os.getenv("MAX_SCENES", "14"))
+
+# Image Generation Settings
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "black-forest-labs/flux-schnell")
+IMAGE_ASPECT_RATIO = os.getenv("IMAGE_ASPECT_RATIO", "9:16")
+IMAGE_INFERENCE_STEPS = int(os.getenv("IMAGE_INFERENCE_STEPS", "4"))
+IMAGE_GUIDANCE = float(os.getenv("IMAGE_GUIDANCE", "3.0"))
+IMAGE_QUALITY = int(os.getenv("IMAGE_QUALITY", "100"))
+
+# TTS Settings
+TTS_MODEL = os.getenv("TTS_MODEL", "tts-1")
+TTS_SPEECH_RATE = float(os.getenv("TTS_SPEECH_RATE", "1.1"))
+
+# Available Options (following SmartClipAI patterns)
+STORY_CATEGORIES = [
+    "custom", "scary", "mystery", "bedtime", "history", 
+    "urban_legends", "motivational", "fun_facts", 
+    "life_tips", "philosophy", "love"
+]
+
+AVAILABLE_VOICES = [
+    "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+]
+
+IMAGE_STYLES = [
+    "photorealistic", "cinematic", "anime", "comic-book", "pixar-art"
+]
+
+# Cost Estimation (per unit)
+OPENAI_COST_PER_TOKEN = float(os.getenv("OPENAI_COST_PER_TOKEN", "0.00003"))  # GPT-4 input
+OPENAI_TTS_COST_PER_CHAR = float(os.getenv("OPENAI_TTS_COST_PER_CHAR", "0.000015"))  # TTS
+REPLICATE_COST_PER_IMAGE = float(os.getenv("REPLICATE_COST_PER_IMAGE", "0.05"))  # Flux
+
+# Faceless Video Limits
+MAX_FACELESS_VIDEOS_PER_USER = int(os.getenv("MAX_FACELESS_VIDEOS_PER_USER", "10"))  # Per day
+MAX_STORY_TITLE_LENGTH = int(os.getenv("MAX_STORY_TITLE_LENGTH", "100"))  # Characters
+MAX_STORY_DESCRIPTION_LENGTH = int(os.getenv("MAX_STORY_DESCRIPTION_LENGTH", "500"))  # Characters
+MAX_STORY_CONTENT_LENGTH = int(os.getenv("MAX_STORY_CONTENT_LENGTH", "2000"))  # Characters
+
+# Faceless Video Storage Paths (following existing patterns)
+FACELESS_VIDEOS_DIR = Path(os.getenv("FACELESS_VIDEOS_DIR", RESULTS_DIR / "faceless-videos"))
+FACELESS_VIDEOS_DIR.mkdir(parents=True, exist_ok=True) 

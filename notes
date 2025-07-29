@@ -14,7 +14,7 @@ separate terminal:
 start api:
  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-start Rides with linux or WSL2 ubuntu:
+# start Rides with linux or WSL2 ubuntu:
  redis-server  # this will run in the foreground  
  redis-server --daemonize yes # this will run in the redis server in the background 
  redis-cli # this will run in the foreground and you can use it to test the redis server

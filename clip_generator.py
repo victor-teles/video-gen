@@ -460,7 +460,7 @@ class ClipGenerator:
                 # Process each clip
                 for i, (clip, clip_text) in enumerate(clips, 1):
                     print(f"\n📽️  Processing clip {i}/{len(clips)}")
-                    
+            
                     # Create clip filename
                     clip_title = self.sanitize_filename(clip_text)
                     clip_filename = f"clip_{i:02d}_{clip_title}.mp4"
@@ -483,7 +483,7 @@ class ClipGenerator:
                     temp_caption = temp_dir_path / f"temp_caption_{i}.json"
                     with open(temp_caption, 'w', encoding='utf-8') as f:
                         json.dump(caption_data, f, indent=2, ensure_ascii=False)
-                    
+            
                     # Save to final storage location
                     clip_dir = self.output_dir / Path(input_video).stem
                     clip_dir.mkdir(parents=True, exist_ok=True)
@@ -510,7 +510,7 @@ class ClipGenerator:
                     
                     # Force memory cleanup after each clip
                     cleanup_memory()
-                
+        
                 return generated_clips
                 
         except Exception as e:

@@ -1,9 +1,14 @@
 """
 Celery tasks for background video processing
 """
+import os
+import sys
+
+# Add the project root directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from celery import Celery
 from celery.signals import worker_ready
-import os
 import time
 import traceback
 from pathlib import Path
@@ -16,11 +21,22 @@ import tempfile
 
 import config
 from database import SessionLocal
-from models import ProcessingJob, GeneratedClip
+from models import ProcessingJob, GeneratedClip, FacelessVideoJob, FacelessVideoScene
 from clip_generator import ClipGenerator
 from storage_handler import StorageHandler
 
 logger = logging.getLogger(__name__)
+
+def safe_datetime_diff(start_time: datetime, end_time: datetime) -> float:
+    """Safely calculate time difference between two datetimes, handling timezone issues"""
+    if not start_time or not end_time:
+        return 0
+    
+    # Convert both to naive UTC for comparison
+    start = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
+    end = end_time.replace(tzinfo=None) if end_time.tzinfo else end_time
+    
+    return (end - start).total_seconds()
 
 # Create Celery app
 celery_app = Celery(
@@ -87,7 +103,7 @@ def update_job_progress(db: Session, job_id: int, progress: int, step: str):
                     job.completed_at = datetime.utcnow()
                 db.commit()
                 print(f"📊 Progress: {progress}% - {step}")
-                break
+            break
         except SQLAlchemyError as e:
             db.rollback()
             if attempt == max_retries - 1:  # Last attempt
@@ -108,15 +124,15 @@ def update_job_status(db: Session, job_id: int, status: str, error_message: str 
                 job.status = status
                 if error_message:
                     job.error_message = error_message
+                now = datetime.utcnow()
                 if status == "processing":
-                    job.started_at = datetime.utcnow()
+                    job.started_at = now
                 elif status in ["completed", "failed"]:
-                    job.completed_at = datetime.utcnow()
+                    job.completed_at = now
                     if job.started_at:
-                        processing_time = (job.completed_at - job.started_at).total_seconds()
-                        job.processing_time_seconds = int(processing_time)
+                        job.processing_time_seconds = int(safe_datetime_diff(job.started_at, now))
                 db.commit()
-                break
+            break
         except SQLAlchemyError as e:
             db.rollback()
             if attempt == max_retries - 1:  # Last attempt
@@ -302,19 +318,19 @@ def process_video_task(self, job_id: int):
                     import json
                     json.dump(caption_data, f, indent=2, ensure_ascii=False)
                 
-                # Upload to S3 if using S3 storage
-                if config.STORAGE_TYPE.split('#')[0].strip() == 's3':
-                    progress_callback.update_clip_processing(i, "Uploading to S3...")
-                    
-                    # Upload clip file
-                    clip_s3_path = f"results/{job.processing_id}/{final_clip.name}"
-                    if not storage.save_file(str(final_clip), clip_s3_path):
-                        logger.error(f"Failed to upload clip to S3: {clip_s3_path}")
-                    
-                    # Upload caption file
-                    caption_s3_path = f"results/{job.processing_id}/{caption_file.name}"
-                    if not storage.save_file(str(caption_file), caption_s3_path):
-                        logger.error(f"Failed to upload caption to S3: {caption_s3_path}")
+                    # Upload to S3 if using S3 storage
+                    if config.STORAGE_TYPE.split('#')[0].strip() == 's3':
+                        progress_callback.update_clip_processing(i, "Uploading to S3...")
+                        
+                        # Upload clip file
+                        clip_s3_path = f"results/{job.processing_id}/{final_clip.name}"
+                        if not storage.save_file(str(final_clip), clip_s3_path):
+                            logger.error(f"Failed to upload clip to S3: {clip_s3_path}")
+                        
+                        # Upload caption file
+                        caption_s3_path = f"results/{job.processing_id}/{caption_file.name}"
+                        if not storage.save_file(str(caption_file), caption_s3_path):
+                            logger.error(f"Failed to upload caption to S3: {caption_s3_path}")
                 
                 # Clean up temp file
                 if temp_clip.exists():
@@ -348,14 +364,14 @@ def process_video_task(self, job_id: int):
                 
                 # Clean up memory after each clip
                 cleanup_memory()
-            
-            # Cleanup temporary input file if downloaded from S3
-            if temp_input_file and os.path.exists(temp_input_file.name):
-                try:
-                    os.unlink(temp_input_file.name)
-                    logger.info(f"🧹 Cleaned up temporary file: {temp_input_file.name}")
-                except Exception as cleanup_error:
-                    logger.warning(f"Failed to cleanup temporary file: {cleanup_error}")
+                
+                # Cleanup temporary input file if downloaded from S3
+                if temp_input_file and os.path.exists(temp_input_file.name):
+                    try:
+                        os.unlink(temp_input_file.name)
+                        logger.info(f"🧹 Cleaned up temporary file: {temp_input_file.name}")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup temporary file: {cleanup_error}")
             
             # Update final job status
             job.total_clips_generated = len(processed_clips)
@@ -370,7 +386,7 @@ def process_video_task(self, job_id: int):
                 "clips_generated": len(processed_clips),
                 "clips": processed_clips
             }
-            
+        
         except Exception as e:
             # Cleanup temporary input file if it exists
             if temp_input_file and os.path.exists(temp_input_file.name):
@@ -402,4 +418,264 @@ def worker_ready_handler(sender=None, **kwargs):
         # Don't fail the worker startup, but log the error
         logger.error(f"Database initialization failed: {e}")
     
-    print("🚀 Celery worker is ready and waiting for tasks...") 
+    print("🚀 Celery worker is ready and waiting for tasks...")
+
+# ============================================================================
+# FACELESS VIDEO GENERATION TASKS
+# ============================================================================
+
+def update_faceless_job_progress(db: Session, job_id: int, progress: int, step: str):
+    """Update faceless job progress in database (following existing pattern)"""
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            job = db.query(FacelessVideoJob).filter(FacelessVideoJob.id == job_id).first()
+            if job:
+                job.progress_percentage = progress
+                job.current_step = step
+                if progress >= 100:
+                    job.status = "completed"
+                    job.completed_at = datetime.utcnow()
+                db.commit()
+                print(f"📊 Faceless Video Progress: {progress}% - {step}")
+                break
+        except SQLAlchemyError as e:
+            db.rollback()
+            if attempt == max_retries - 1:  # Last attempt
+                logger.error(f"Failed to update faceless job progress after {max_retries} attempts: {e}")
+                raise
+            logger.warning(f"Faceless progress update attempt {attempt + 1} failed: {e}")
+            time.sleep(retry_delay * (attempt + 1))
+
+def update_faceless_job_status(db: Session, job_id: int, status: str, error_message: str = None):
+    """Update faceless job status in database (following existing pattern)"""
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            job = db.query(FacelessVideoJob).filter(FacelessVideoJob.id == job_id).first()
+            if job:
+                job.status = status
+                if error_message:
+                    job.error_message = error_message
+                now = datetime.utcnow()
+                if status == "processing":
+                    job.started_at = now
+                elif status in ["completed", "failed"]:
+                    job.completed_at = now
+                    if job.started_at:
+                        job.processing_time_seconds = int(safe_datetime_diff(job.started_at, now))
+                db.commit()
+                break
+        except SQLAlchemyError as e:
+            db.rollback()
+            if attempt == max_retries - 1:  # Last attempt
+                logger.error(f"Failed to update faceless job status after {max_retries} attempts: {e}")
+                raise
+            logger.warning(f"Faceless status update attempt {attempt + 1} failed: {e}")
+            time.sleep(retry_delay * (attempt + 1))
+
+@celery_app.task(bind=True, max_retries=3)
+def generate_faceless_video_task(self, job_id: int):
+    """Generate faceless video background task"""
+    
+    with get_db_session() as db:
+        try:
+            # Get job details
+            job = db.query(FacelessVideoJob).filter(FacelessVideoJob.id == job_id).first()
+            if not job:
+                logger.error(f"Faceless video job {job_id} not found")
+                return
+            
+            # Check if job is already completed or failed
+            if job.status in ["completed", "failed"]:
+                logger.info(f"Job {job_id} is already in {job.status} state, skipping")
+                return
+            
+            # Update status to processing
+            update_faceless_job_status(db, job_id, "processing")
+            update_faceless_job_progress(db, job_id, 5, "Initializing video generation...")
+            
+            # Import generator here to avoid circular imports
+            from faceless_video_generator import FacelessVideoGenerator
+            
+            # Initialize generator
+            generator = FacelessVideoGenerator(job.processing_id)
+            
+            # Step 1: Generate or use provided story (5-15%)
+            update_faceless_job_progress(db, job_id, 10, "Generating story content...")
+            story = generator.generate_story(
+                job.story_category, 
+                job.story_content,
+                job.story_title,
+                job.story_description
+            )
+            
+            # Save generated story
+            job.generated_story = story
+            db.commit()
+            
+            # Step 2: Create storyboard (15-25%)
+            update_faceless_job_progress(db, job_id, 20, "Creating video storyboard...")
+            scenes = generator.create_storyboard(story)
+            
+            # Step 3: Generate images and audio for each scene (25-85%)
+            total_scenes = len(scenes)
+            job.total_scenes_generated = total_scenes
+            db.commit()
+            
+            scene_records = []
+            
+            for i, scene_data in enumerate(scenes):
+                scene_progress = 25 + (i / total_scenes) * 60
+                update_faceless_job_progress(db, job_id, int(scene_progress), 
+                                           f"Generating scene {i+1}/{total_scenes}")
+                
+                try:
+                    # Create scene record
+                    scene = FacelessVideoScene(
+                        job_id=job.id,
+                        scene_number=scene_data['scene_number'],
+                        scene_text=scene_data['text'],
+                        image_prompt=scene_data['image_prompt'],
+                        start_time=scene_data['start_time'],
+                        end_time=scene_data['end_time'],
+                        duration=scene_data['duration']
+                    )
+                    db.add(scene)
+                    db.commit()
+                    db.refresh(scene)
+                    
+                    # Generate image
+                    update_faceless_job_progress(db, job_id, int(scene_progress), 
+                                               f"Generating image for scene {i+1}")
+                    image_url, img_gen_time = generator.generate_scene_image(
+                        scene_data['image_prompt'], 
+                        job.image_style
+                    )
+                    
+                    # Convert FileOutput to string if needed
+                    if hasattr(image_url, 'url'):
+                        image_url = str(image_url.url)
+                    
+                    scene.image_url = image_url
+                    scene.image_generation_time = img_gen_time
+                    
+                    # Download and store image
+                    image_path = generator.download_and_store_image(image_url, i + 1)
+                    scene.image_filename = str(image_path)
+                    
+                    # Generate audio
+                    update_faceless_job_progress(db, job_id, int(scene_progress), 
+                                               f"Generating audio for scene {i+1}")
+                    audio_path, audio_gen_time = generator.generate_audio(
+                        scene_data['text'], 
+                        job.voice_id,
+                        i + 1
+                    )
+                    scene.audio_filename = str(audio_path)
+                    scene.audio_generation_time = audio_gen_time
+                    
+                    # Add file paths to scene data for video creation
+                    scene_data['image_path'] = image_path
+                    scene_data['audio_path'] = audio_path
+                    
+                    scene_records.append(scene)
+                    db.commit()
+                    
+                except Exception as scene_error:
+                    logger.error(f"Failed to generate scene {i+1}: {scene_error}")
+                    # Continue with next scene instead of failing entire job
+                    continue
+                
+                # Force memory cleanup after each scene
+                from faceless_video_generator import cleanup_memory
+                cleanup_memory()
+            
+            if not scene_records:
+                raise Exception("Failed to generate any valid scenes")
+            
+            # Step 4: Compose final video (85-95%)
+            update_faceless_job_progress(db, job_id, 90, "Composing final video...")
+            
+            video_path, caption_path, file_size = generator.create_video(scenes, story)
+            
+            # Update job with results
+            job.final_video_filename = str(video_path)
+            job.caption_filename = str(caption_path)
+            job.file_size_bytes = file_size
+            
+            # Calculate total duration
+            total_duration = sum(scene['duration'] for scene in scenes)
+            job.total_duration_seconds = total_duration
+            
+            # Save cost information
+            cost_breakdown = generator.get_cost_breakdown()
+            job.openai_cost = cost_breakdown['openai_cost']
+            job.replicate_cost = cost_breakdown['replicate_cost']
+            job.total_cost = cost_breakdown['total_cost']
+            
+            # Mark as completed
+            update_faceless_job_status(db, job_id, "completed")
+            update_faceless_job_progress(db, job_id, 100, "Video generation completed!")
+            
+            print(f"✅ Faceless video generated successfully: {job.processing_id}")
+            print(f"💰 Total cost: ${cost_breakdown['total_cost']:.4f}")
+            print(f"📹 Duration: {total_duration:.1f} seconds")
+            print(f"📦 File size: {file_size / (1024*1024):.1f}MB")
+            
+            return {
+                "status": "completed",
+                "processing_id": job.processing_id,
+                "scenes_generated": total_scenes,
+                "duration": total_duration,
+                "cost": cost_breakdown['total_cost']
+            }
+            
+        except Exception as e:
+            error_msg = f"Faceless video generation failed: {str(e)}\n{traceback.format_exc()}"
+            logger.error(error_msg)
+            
+            try:
+                # Mark job as failed and don't retry
+                update_faceless_job_status(db, job_id, "failed", error_msg)
+                
+                # Clean up any partial files
+                if 'job' in locals() and job:
+                    storage = StorageHandler()
+                    scenes = db.query(FacelessVideoScene).filter(FacelessVideoScene.job_id == job.id).all()
+                    for scene in scenes:
+                        try:
+                            if scene.audio_filename:
+                                storage.delete_file(scene.audio_filename)
+                            if scene.image_filename:
+                                storage.delete_file(scene.image_filename)
+                        except Exception as cleanup_error:
+                            logger.warning(f"Failed to cleanup scene files: {cleanup_error}")
+                    
+                    try:
+                        if job.final_video_filename:
+                            storage.delete_file(job.final_video_filename)
+                        if job.caption_filename:
+                            storage.delete_file(job.caption_filename)
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup final files: {cleanup_error}")
+                        
+            except Exception as db_error:
+                logger.error(f"Failed to update job status: {db_error}")
+            
+            # Force memory cleanup
+            try:
+                from faceless_video_generator import cleanup_memory
+                cleanup_memory()
+            except:
+                pass
+            
+            # Don't retry the task
+            return {
+                "status": "failed",
+                "error": str(e)
+            } 

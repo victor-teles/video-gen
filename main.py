@@ -17,8 +17,8 @@ import os
 
 import config
 from database import get_db, init_database
-from models import ProcessingJob, GeneratedClip
-from tasks import process_video_task, celery_app
+from models import ProcessingJob, GeneratedClip, FacelessVideoJob, FacelessVideoScene
+from tasks import process_video_task, generate_faceless_video_task, celery_app
 from storage_handler import StorageHandler
 
 # Initialize FastAPI app
@@ -407,16 +407,16 @@ async def download_clip(processing_id: str, filename: str, db: Session = Depends
         # For local storage, serve the file directly
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found on disk")
-        
-        # Determine media type
-        media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-        
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type,
-            filename=filename,
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
+    
+    # Determine media type
+    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=filename,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.get("/api/download/captions/{processing_id}/{filename}")
 async def download_captions(processing_id: str, filename: str, db: Session = Depends(get_db)):
@@ -458,13 +458,13 @@ async def download_captions(processing_id: str, filename: str, db: Session = Dep
         # For local storage, serve the file directly
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found on disk")
-        
-        return FileResponse(
-            path=str(file_path),
-            media_type="application/json",
-            filename=filename,
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
+    
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/json",
+        filename=filename,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.get("/api/jobs")
 async def list_jobs(
@@ -528,6 +528,325 @@ async def delete_job(processing_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete job: {str(e)}")
+
+# ============================================================================
+# FACELESS VIDEO GENERATION ENDPOINTS
+# ============================================================================
+
+@app.post("/api/faceless-video/generate")
+async def generate_faceless_video(
+    story_title: str,
+    story_description: Optional[str] = "",
+    story_content: Optional[str] = "",
+    story_category: str = "custom",
+    image_style: str = "photorealistic",
+    voice_id: str = "alloy",
+    aspect_ratio: str = "9:16",
+    db: Session = Depends(get_db)
+):
+    """
+    Generate faceless video from user input
+    
+    - **story_title**: Title for the story (required)
+    - **story_description**: Description of what the story should be about (optional)
+    - **story_content**: Actual story content (required for custom category)
+    - **story_category**: Category of story (custom, scary, mystery, etc.)
+    - **image_style**: Visual style (photorealistic, cinematic, anime, comic-book, pixar-art)
+    - **voice_id**: TTS voice (alloy, echo, fable, onyx, nova, shimmer)
+    - **aspect_ratio**: Video aspect ratio (default: 9:16)
+    """
+    
+    # Validate inputs
+    if not story_title or len(story_title.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Story title is required")
+    
+    if len(story_title) > config.MAX_STORY_TITLE_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Story title too long. Max {config.MAX_STORY_TITLE_LENGTH} characters")
+    
+    if story_description and len(story_description) > config.MAX_STORY_DESCRIPTION_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Story description too long. Max {config.MAX_STORY_DESCRIPTION_LENGTH} characters")
+    
+    if story_category == "custom" and not story_content:
+        raise HTTPException(status_code=400, detail="Story content is required for custom category")
+    
+    if story_content and len(story_content) > config.MAX_STORY_CONTENT_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Story content too long. Max {config.MAX_STORY_CONTENT_LENGTH} characters")
+    
+    if story_category not in config.STORY_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid story category. Options: {config.STORY_CATEGORIES}")
+    
+    if voice_id not in config.AVAILABLE_VOICES:
+        raise HTTPException(status_code=400, detail=f"Invalid voice. Options: {config.AVAILABLE_VOICES}")
+    
+    if image_style not in config.IMAGE_STYLES:
+        raise HTTPException(status_code=400, detail=f"Invalid image style. Options: {config.IMAGE_STYLES}")
+    
+    # Validate aspect ratio
+    try:
+        parse_aspect_ratio(aspect_ratio)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail=f"Invalid aspect ratio format: {aspect_ratio}")
+    
+    # Check API keys are configured
+    if not config.OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    
+    if not config.REPLICATE_API_TOKEN:
+        raise HTTPException(status_code=500, detail="Replicate API token not configured")
+    
+    try:
+        # Create job record
+        job = FacelessVideoJob(
+            story_title=story_title.strip(),
+            story_description=story_description.strip() if story_description else "",
+            story_content=story_content.strip() if story_content else "",
+            story_category=story_category,
+            image_style=image_style,
+            voice_id=voice_id,
+            aspect_ratio=aspect_ratio
+        )
+        
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        
+        # Queue background task
+        task = generate_faceless_video_task.delay(job.id)
+        
+        print(f"📤 Faceless video generation queued: {story_title} -> {job.processing_id}")
+        
+        return {
+            "processing_id": job.processing_id,
+            "status": "queued",
+            "message": "Faceless video generation started",
+            "story_title": story_title,
+            "story_category": story_category,
+            "image_style": image_style,
+            "voice_id": voice_id,
+            "estimated_time": "5-10 minutes",
+            "task_id": task.id
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to queue faceless video generation: {str(e)}")
+
+@app.get("/api/faceless-video/status/{processing_id}")
+async def get_faceless_video_status(processing_id: str, db: Session = Depends(get_db)):
+    """
+    Get status of faceless video generation
+    
+    - **processing_id**: The processing ID returned from generate endpoint
+    """
+    
+    job = db.query(FacelessVideoJob).filter(
+        FacelessVideoJob.processing_id == processing_id
+    ).first()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Faceless video job not found")
+    
+    # Base response
+    response = job.to_dict()
+    
+    # Add scenes information if available
+    if job.status in ["processing", "completed"]:
+        scenes = db.query(FacelessVideoScene).filter(
+            FacelessVideoScene.job_id == job.id
+        ).order_by(FacelessVideoScene.scene_number).all()
+        response["scenes"] = [scene.to_dict() for scene in scenes]
+    
+    # Add estimated remaining time
+    if job.status == "processing" and job.progress_percentage > 0:
+        if job.progress_percentage < 100:
+            estimated_remaining = max(1, int((100 - job.progress_percentage) / 10))
+            response["estimated_remaining"] = f"{estimated_remaining} minutes"
+    
+    return response
+
+@app.get("/api/download/faceless-video/{processing_id}")
+async def download_faceless_video(processing_id: str, db: Session = Depends(get_db)):
+    """
+    Download generated faceless video
+    
+    - **processing_id**: The processing ID
+    """
+    
+    # Verify job exists
+    job = db.query(FacelessVideoJob).filter(
+        FacelessVideoJob.processing_id == processing_id
+    ).first()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Faceless video job not found")
+    
+    # Verify job is completed
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Video not ready yet")
+    
+    if not job.final_video_filename:
+        raise HTTPException(status_code=404, detail="Video file not found")
+    
+    storage = StorageHandler()
+    
+    if config.STORAGE_TYPE == 's3':
+        # For S3, generate a presigned URL and redirect
+        url = storage.get_file_url(job.final_video_filename, expires_in=3600)
+        if not url:
+            raise HTTPException(status_code=404, detail="Video file not found in storage")
+        return RedirectResponse(url=url)
+    else:
+        # For local storage, serve the file directly
+        file_path = Path(job.final_video_filename)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Video file not found on disk")
+        
+        return FileResponse(
+            path=str(file_path),
+            media_type="video/mp4",
+            filename=f"faceless_video_{processing_id}.mp4",
+            headers={"Content-Disposition": f"attachment; filename=faceless_video_{processing_id}.mp4"}
+        )
+
+@app.get("/api/download/faceless-captions/{processing_id}")
+async def download_faceless_captions(processing_id: str, db: Session = Depends(get_db)):
+    """
+    Download faceless video caption file (JSON format)
+    
+    - **processing_id**: The processing ID
+    """
+    
+    # Verify job exists
+    job = db.query(FacelessVideoJob).filter(
+        FacelessVideoJob.processing_id == processing_id
+    ).first()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Faceless video job not found")
+    
+    # Verify job is completed
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Caption file not ready yet")
+    
+    if not job.caption_filename:
+        raise HTTPException(status_code=404, detail="Caption file not found")
+    
+    storage = StorageHandler()
+    
+    if config.STORAGE_TYPE == 's3':
+        # For S3, generate a presigned URL and redirect
+        url = storage.get_file_url(job.caption_filename, expires_in=3600)
+        if not url:
+            raise HTTPException(status_code=404, detail="Caption file not found in storage")
+        return RedirectResponse(url=url)
+    else:
+        # For local storage, serve the file directly
+        file_path = Path(job.caption_filename)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Caption file not found on disk")
+        
+        return FileResponse(
+            path=str(file_path),
+            media_type="application/json",
+            filename=f"faceless_captions_{processing_id}.json",
+            headers={"Content-Disposition": f"attachment; filename=faceless_captions_{processing_id}.json"}
+        )
+
+@app.get("/api/faceless-video/options")
+async def get_faceless_video_options():
+    """
+    Get available options for faceless video generation
+    """
+    return {
+        "story_categories": config.STORY_CATEGORIES,
+        "voices": config.AVAILABLE_VOICES,
+        "image_styles": config.IMAGE_STYLES,
+        "limits": {
+            "max_story_title_length": config.MAX_STORY_TITLE_LENGTH,
+            "max_story_description_length": config.MAX_STORY_DESCRIPTION_LENGTH,
+            "max_story_content_length": config.MAX_STORY_CONTENT_LENGTH,
+            "max_scenes": config.MAX_SCENES,
+            "max_videos_per_user": config.MAX_FACELESS_VIDEOS_PER_USER
+        },
+        "estimated_costs": {
+            "per_video": "$0.20 - $1.50",
+            "breakdown": "Story generation (~$0.03) + Image generation (~$0.70) + TTS (~$0.05)"
+        },
+        "supported_aspect_ratios": ["9:16", "16:9", "1:1"],
+        "processing_time": "5-10 minutes average"
+    }
+
+@app.get("/api/faceless-video/jobs")
+async def list_faceless_video_jobs(
+    limit: int = 10, 
+    offset: int = 0,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    List faceless video jobs (for admin/debugging)
+    
+    - **limit**: Number of jobs to return
+    - **offset**: Offset for pagination
+    - **status**: Filter by status (pending, processing, completed, failed)
+    """
+    
+    query = db.query(FacelessVideoJob)
+    
+    if status:
+        query = query.filter(FacelessVideoJob.status == status)
+    
+    jobs = query.order_by(FacelessVideoJob.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "jobs": [job.to_dict() for job in jobs],
+        "total": query.count(),
+        "limit": limit,
+        "offset": offset
+    }
+
+@app.delete("/api/faceless-video/jobs/{processing_id}")
+async def delete_faceless_video_job(processing_id: str, db: Session = Depends(get_db)):
+    """
+    Delete a faceless video job and its files
+    
+    - **processing_id**: The processing ID to delete
+    """
+    
+    job = db.query(FacelessVideoJob).filter(
+        FacelessVideoJob.processing_id == processing_id
+    ).first()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Faceless video job not found")
+    
+    try:
+        storage = StorageHandler()
+        
+        # Delete video file
+        if job.final_video_filename:
+            storage.delete_file(job.final_video_filename)
+        
+        # Delete caption file
+        if job.caption_filename:
+            storage.delete_file(job.caption_filename)
+        
+        # Delete scene files
+        scenes = db.query(FacelessVideoScene).filter(FacelessVideoScene.job_id == job.id).all()
+        for scene in scenes:
+            if scene.image_filename:
+                storage.delete_file(scene.image_filename)
+            if scene.audio_filename:
+                storage.delete_file(scene.audio_filename)
+        
+        # Delete database records (scenes will be deleted automatically due to cascade)
+        db.delete(job)
+        db.commit()
+        
+        return {"message": f"Faceless video job {processing_id} deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete faceless video job: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
