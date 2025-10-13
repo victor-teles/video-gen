@@ -27,9 +27,7 @@ torchvision
 torchaudio
 
 # Standard Libraries - let pip resolve numpy version based on other dependencies
-numpy>=2.0.0
-pathlib
-argparse 
+numpy>=2.0.0 
 
 # AWS/S3 Storage
 boto3>=1.34.0
