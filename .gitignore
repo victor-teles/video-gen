@@ -158,6 +158,13 @@ aws-config.json
 *.crt
 *.csr
 
+# AWS Credentials (NEVER COMMIT THESE!)
+*credentials.csv
+*accessKeys.csv
+editeur-ai-admin_*.csv
+*.credentials
+*.access-keys
+
 # Terraform
 *.tfstate
 *.tfstate.*
