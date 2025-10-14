@@ -446,11 +446,23 @@ class ClipGenerator:
                 print("🔍 Finding best clips...")
                 self._init_clipfinder()
                 clips = self.clipfinder.find_clips(
-                    transcription,
-                    num_clips=num_clips,
-                    min_duration=30,
-                    max_duration=120
+                    transcription=transcription
                 )
+                
+                # Select best clips based on duration and limit to num_clips
+                clips_with_duration = []
+                for clip in clips:
+                    duration = clip.end_time - clip.start_time
+                    if 15.0 <= duration <= 120.0:  # Filter clips between 15 and 120 seconds
+                        # Get clip text for this clip
+                        clip_words = [w.text for w in transcription.words 
+                                     if clip.start_time <= w.start_time <= clip.end_time]
+                        clip_text = " ".join(clip_words[:10])  # First 10 words
+                        clips_with_duration.append((clip, duration, clip_text))
+                
+                # Sort by duration and take top N
+                clips_with_duration.sort(key=lambda x: x[1], reverse=True)
+                selected_clips = [(clip, clip_text) for clip, _, clip_text in clips_with_duration[:num_clips]]
                 
                 # Clean up after clip finding
                 cleanup_memory()
@@ -458,8 +470,8 @@ class ClipGenerator:
                 generated_clips = []
                 
                 # Process each clip
-                for i, (clip, clip_text) in enumerate(clips, 1):
-                    print(f"\n📽️  Processing clip {i}/{len(clips)}")
+                for i, (clip, clip_text) in enumerate(selected_clips, 1):
+                    print(f"\n📽️  Processing clip {i}/{len(selected_clips)}")
             
                     # Create clip filename
                     clip_title = self.sanitize_filename(clip_text)

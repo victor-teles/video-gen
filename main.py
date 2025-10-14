@@ -197,7 +197,18 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint - optimized for fast response"""
+    # Return immediately without checking Celery (too slow)
+    # For detailed status, use /api/system-status endpoint
+    return {
+        "status": "healthy",
+        "database": "connected",
+        "storage_available": True
+    }
+
+@app.get("/api/system-status")
+async def system_status():
+    """Detailed system status check (slower but comprehensive)"""
     try:
         # Check Celery connection
         inspector = celery_app.control.inspect()
@@ -207,7 +218,9 @@ async def health_check():
             "status": "healthy",
             "database": "connected",
             "celery_workers": len(active_workers) if active_workers else 0,
-            "storage_available": True
+            "storage_type": config.STORAGE_TYPE,
+            "storage_available": True,
+            "version": config.API_VERSION
         }
     except Exception as e:
         return JSONResponse(

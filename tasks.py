@@ -22,7 +22,8 @@ import tempfile
 import config
 from database import SessionLocal
 from models import ProcessingJob, GeneratedClip, FacelessVideoJob, FacelessVideoScene
-from clip_generator import ClipGenerator
+# Use integrated video service (backend2's working implementation)
+from services.video_service import VideoService
 from storage_handler import StorageHandler
 
 logger = logging.getLogger(__name__)
@@ -230,141 +231,80 @@ def process_video_task(self, job_id: int):
             # Create progress callback
             progress_callback = ProgressCallback(db, job_id, job.num_clips_requested)
             
-            # Initialize clip generator
-            generator = ClipGenerator(str(output_dir))
+            # Initialize integrated video service (backend2's proven implementation)
+            video_service = VideoService()
             
-            # Step 1: Transcription
-            progress_callback.update_transcription("Transcribing video...")
-            generator._init_transcriber()  # Initialize transcriber before using it
-            transcription = generator.transcriber.transcribe(audio_file_path=str(input_file))
-            progress_callback.update_transcription("Transcription completed")
+            # Process video using backend2's working implementation
+            try:
+                import asyncio
+                result = asyncio.run(video_service.process_video(
+                    video_path=str(input_file),
+                    num_clips=job.num_clips_requested,
+                    burn_captions=False
+                ))
+            except Exception as e:
+                logger.error(f"VideoService processing failed: {e}")
+                raise
             
-            # Clean up memory after transcription
-            from clip_generator import cleanup_memory
-            cleanup_memory()
+            # Extract processed clips from result
+            processed_clips_data = result.get('processed_clips', [])
             
-            # Step 2: Find clips
-            generator._init_clipfinder()  # Initialize clipfinder before using it
-            clips = generator.clipfinder.find_clips(transcription=transcription)
-            progress_callback.update_clip_finding(len(clips))
-            
-            # Clean up memory after clip finding
-            cleanup_memory()
-            
-            if not clips:
-                raise ValueError("No clips found in the video")
-            
-            # Step 3: Select clips
-            clips_with_duration = []
-            for clip in clips:
-                duration = clip.end_time - clip.start_time
-                if 30.0 <= duration <= 120.0:  # Filter clips between 30 and 120 seconds
-                    clips_with_duration.append((clip, duration))
-            
-            # Sort by duration and take top N
-            clips_with_duration.sort(key=lambda x: x[1], reverse=True)
-            selected_clips = [clip for clip, _ in clips_with_duration[:job.num_clips_requested]]
-            
-            progress_callback.update_clip_selection(len(selected_clips))
-            
-            if not selected_clips:
-                raise ValueError("No clips meet the minimum duration requirement (30+ seconds)")
-            
-            # Step 4: Process each clip
+            # Process the results to save to database and handle storage
             processed_clips = []
             
-            for i, clip in enumerate(selected_clips, 1):
-                progress_callback.update_clip_processing(i, "Extracting clip...")
-                
-                start_time = clip.start_time
-                end_time = clip.end_time
-                duration = end_time - start_time
-                
-                # Get clip text for filename
-                clip_words = [w.text for w in transcription.words 
-                             if start_time <= w.start_time <= end_time]
-                clip_text = " ".join(clip_words[:10])  # First 10 words
-                
-                # Create filename
-                safe_name = generator.sanitize_filename(clip_text)
-                base_filename = f"clip_{i:02d}_{safe_name}"
-                
-                # Extract and process clip
-                temp_clip = output_dir / f"{base_filename}_temp.mp4"
-                final_clip = output_dir / f"{base_filename}.mp4"
-                caption_file = output_dir / f"{base_filename}.json"
-                
-                # Extract high-quality clip
-                progress_callback.update_clip_processing(i, "Extracting high-quality clip...")
-                if not generator.extract_high_quality_clip(str(input_file), str(temp_clip), 
-                                                         start_time, end_time):
-                    print(f"⚠️ Failed to extract clip {i}, skipping...")
-                    continue
-                
-                # Auto-crop to target ratio
-                progress_callback.update_clip_processing(i, "Auto-cropping with YOLO...")
-                if not generator.auto_crop_with_yolo(str(temp_clip), str(final_clip), target_ratio):
-                    print(f"⚠️ Failed to crop clip {i}, skipping...")
-                    if temp_clip.exists():
-                        temp_clip.unlink()
-                    continue
-                
-                # Generate caption JSON
-                progress_callback.update_clip_processing(i, "Generating captions...")
-                full_clip_text = " ".join(clip_words)
-                caption_data = generator.generate_caption_json(transcription, clip, full_clip_text)
-                
-                with open(caption_file, 'w', encoding='utf-8') as f:
-                    import json
-                    json.dump(caption_data, f, indent=2, ensure_ascii=False)
-                
+            for clip_data in processed_clips_data:
+                try:
+                    clip_number = clip_data['clip_number']
+                    clip_path = Path(clip_data['clip_path'])
+                    caption_path = Path(clip_data.get('caption_path', '')) if clip_data.get('caption_path') else None
+                    
+                    # Get clip text preview
+                    clip_text_preview = clip_data.get('full_text', '')[:100] + ('...' if len(clip_data.get('full_text', '')) > 100 else '')
+                    
                     # Upload to S3 if using S3 storage
                     if config.STORAGE_TYPE.split('#')[0].strip() == 's3':
-                        progress_callback.update_clip_processing(i, "Uploading to S3...")
-                        
                         # Upload clip file
-                        clip_s3_path = f"results/{job.processing_id}/{final_clip.name}"
-                        if not storage.save_file(str(final_clip), clip_s3_path):
+                        clip_s3_path = f"results/{job.processing_id}/{clip_path.name}"
+                        if not storage.save_file(str(clip_path), clip_s3_path):
                             logger.error(f"Failed to upload clip to S3: {clip_s3_path}")
                         
-                        # Upload caption file
-                        caption_s3_path = f"results/{job.processing_id}/{caption_file.name}"
-                        if not storage.save_file(str(caption_file), caption_s3_path):
-                            logger.error(f"Failed to upload caption to S3: {caption_s3_path}")
-                
-                # Clean up temp file
-                if temp_clip.exists():
-                    temp_clip.unlink()
-                
-                # Get file size
-                file_size = final_clip.stat().st_size
-                
-                # Save clip info to database
-                db_clip = GeneratedClip(
-                    job_id=job_id,
-                    clip_number=i,
-                    clip_filename=final_clip.name,
-                    caption_filename=caption_file.name,
-                    duration_seconds=duration,
-                    file_size_bytes=file_size,
-                    clip_text_preview=clip_text,
-                    start_time=start_time,
-                    end_time=end_time
-                )
-                db.add(db_clip)
-                
-                processed_clips.append({
-                    "clip_number": i,
-                    "filename": final_clip.name,
-                    "duration": duration,
-                    "file_size": file_size
-                })
-                
-                progress_callback.update_clip_completed(i)
-                
-                # Clean up memory after each clip
-                cleanup_memory()
-                
+                        # Upload caption file if exists
+                        if caption_path and caption_path.exists():
+                            caption_s3_path = f"results/{job.processing_id}/{caption_path.name}"
+                            if not storage.save_file(str(caption_path), caption_s3_path):
+                                logger.error(f"Failed to upload caption to S3: {caption_s3_path}")
+                    
+                    # Get file size
+                    file_size = clip_path.stat().st_size if clip_path.exists() else 0
+                    
+                    # Save clip info to database
+                    db_clip = GeneratedClip(
+                        job_id=job_id,
+                        clip_number=clip_number,
+                        clip_filename=clip_path.name,
+                        caption_filename=caption_path.name if caption_path else None,
+                        duration_seconds=clip_data['duration'],
+                        file_size_bytes=file_size,
+                        clip_text_preview=clip_text_preview,
+                        start_time=clip_data['start_time'],
+                        end_time=clip_data['end_time']
+                    )
+                    db.add(db_clip)
+                    
+                    processed_clips.append({
+                        "clip_number": clip_number,
+                        "filename": clip_path.name,
+                        "duration": clip_data['duration'],
+                        "file_size": file_size
+                    })
+                    
+                    # Update progress
+                    progress = int(50 + (clip_number / len(processed_clips_data)) * 50)
+                    update_job_progress(db, job_id, progress, f"Completed clip {clip_number}/{len(processed_clips_data)}")
+                    
+                except Exception as clip_error:
+                    logger.error(f"Error processing clip {clip_data.get('clip_number', 'unknown')}: {clip_error}")
+                    continue
                 # Cleanup temporary input file if downloaded from S3
                 if temp_input_file and os.path.exists(temp_input_file.name):
                     try:

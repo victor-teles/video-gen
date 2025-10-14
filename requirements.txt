@@ -17,29 +17,32 @@ flower==2.0.1
 # Environment Variables
 python-dotenv==1.0.1
 
-# Video Processing and AI Libraries
-clipsai
+# Video Processing and AI Libraries (backend2's working stack)
 git+https://github.com/m-bain/whisperx.git
 ultralytics
 opencv-python>=4.8.0
 torch
 torchvision
 torchaudio
+faster-whisper
+pyannote.audio
+soundfile>=0.12.1
+transformers>=4.33.1
 
-# Standard Libraries - let pip resolve numpy version based on other dependencies
-numpy>=2.0.0 
+# Standard Libraries
+numpy>=2.0.0
 
 # AWS/S3 Storage
 boto3>=1.34.0
 botocore>=1.34.0
 s3transfer>=0.10.0
 
-# Additional dependencies for Docker
+# Additional dependencies
 python-magic==0.4.27
 requests>=2.31.0
+moviepy>=1.0.3
 
 # Faceless Video Generation Dependencies
 openai>=1.3.0
 replicate>=0.22.0
-moviepy>=1.0.3
 pillow>=10.0.0

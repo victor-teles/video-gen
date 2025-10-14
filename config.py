@@ -88,6 +88,36 @@ AUTO_RELOAD = os.getenv("AUTO_RELOAD", "True").lower() == "true"
 SHOW_ERROR_DETAILS = os.getenv("SHOW_ERROR_DETAILS", "False").lower() == "true"
 
 # ============================================================================
+# CLIP SELECTION AI CONFIGURATION (OpenRouter)
+# ============================================================================
+
+# OpenRouter API settings
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+# Primary model and fallback chain
+CLIP_SELECTION_MODEL = os.getenv("CLIP_SELECTION_MODEL", "tngtech/deepseek-r1t2-chimera:free")
+CLIP_SELECTION_FALLBACK_MODELS_STR = os.getenv(
+    "CLIP_SELECTION_FALLBACK_MODELS",
+    "deepseek/deepseek-chat-v3.1:free,qwen/qwen3-235b-a22b:free,baidu/ernie-4.5-21b-a3b-thinking,google/gemini-2.5-flash-preview-09-2025,x-ai/grok-4-fast"
+)
+CLIP_SELECTION_FALLBACK_MODELS = [m.strip() for m in CLIP_SELECTION_FALLBACK_MODELS_STR.split(',')]
+
+# All available models in priority order
+CLIP_SELECTION_ALL_MODELS = [CLIP_SELECTION_MODEL] + CLIP_SELECTION_FALLBACK_MODELS
+
+# Model configuration
+CLIP_SELECTION_TEMPERATURE = float(os.getenv("CLIP_SELECTION_TEMPERATURE", "0.3"))
+CLIP_SELECTION_MAX_TOKENS = int(os.getenv("CLIP_SELECTION_MAX_TOKENS", "1000"))
+CLIP_SELECTION_MAX_RETRIES = int(os.getenv("CLIP_SELECTION_MAX_RETRIES", "3"))
+
+# Feature flags
+ENABLE_AI_CLIP_SELECTION = os.getenv("ENABLE_AI_CLIP_SELECTION", "true").lower() == "true"
+
+# Cost tracking (free models = $0)
+OPENROUTER_COST_PER_TOKEN = float(os.getenv("OPENROUTER_COST_PER_TOKEN", "0.0"))
+
+# ============================================================================
 # FACELESS VIDEO GENERATION SETTINGS
 # ============================================================================
 
