@@ -66,6 +66,9 @@ class StorageHandler:
                 self.s3_client.upload_file(str(source_path), self.bucket_name, s3_key, ExtraArgs=extra_args)
                 return True
             else:
+                # Ensure destination directory exists for local storage
+                dest_path = Path(dest_path)
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, dest_path)
                 return True
         except Exception as e:
