@@ -26,6 +26,7 @@ class TranscriptionService:
         self.model = None
         self.model_a = None
         self.metadata = None
+        self.device = None
         
         # Check for WhisperX
         try:
@@ -37,6 +38,9 @@ class TranscriptionService:
             if device == "auto":
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             
+            self.device = device
+            
+            # Use smaller model for better memory efficiency
             model_size = config.WHISPER_MODEL_SIZE
             compute_type = "float16" if device == "cuda" else "int8"
             
@@ -96,7 +100,7 @@ class TranscriptionService:
 
     async def _transcribe_with_whisperx(self, audio_path):
         """
-        Transcribe using WhisperX
+        Transcribe using WhisperX with memory optimization
         
         Returns:
             Tuple of:
@@ -106,15 +110,26 @@ class TranscriptionService:
         try:
             import whisperx
             import torch
+            import gc
+            
+            # Force garbage collection before starting
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
             # 1. Transcribe with base Whisper using pre-loaded model
             logger.info("Transcribing with WhisperX...")
-            result = self.model.transcribe(audio_path, language="en")
+            result = self.model.transcribe(audio_path, language="en", batch_size=8)  # Reduce batch size for memory
+            
+            # Force cleanup after transcription
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
             # 2. Align the segments using pre-loaded alignment model
             logger.info("Aligning segments...")
             result = whisperx.align(result["segments"], self.model_a, self.metadata, audio_path, 
-                                   device=config.AI_DEVICE if hasattr(config, 'AI_DEVICE') else "cpu")
+                                   device=self.device, return_char_alignments=False)  # Disable char alignments to save memory
             
             # 3. Process results and preserve word-level timestamps
             transcriptions = []
@@ -169,10 +184,23 @@ class TranscriptionService:
             except Exception as e:
                 logger.warning(f"Failed to save word-level transcript JSON: {str(e)}")
             
+            # Final cleanup
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
             return transcriptions, word_level_data
             
         except Exception as e:
             logger.error(f"WhisperX processing error: {str(e)}", exc_info=True)
+            # Force cleanup on error
+            import gc
+            gc.collect()
+            if 'torch' in locals():
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             return [], None
 
     async def _transcribe_with_faster_whisper(self, audio_path):

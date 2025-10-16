@@ -56,7 +56,10 @@ celery_app.conf.update(
     task_track_started=True,
     task_reject_on_worker_lost=True,
     task_acks_late=True,  # Only acknowledge tasks after they complete
-    worker_prefetch_multiplier=1  # Prevent worker from prefetching multiple tasks
+    worker_prefetch_multiplier=1,  # Prevent worker from prefetching multiple tasks
+    task_soft_time_limit=1800,  # 30 minutes soft limit
+    task_time_limit=2100,  # 35 minutes hard limit
+    worker_max_memory_per_child=2000000  # 2GB max memory per worker child (restart after reaching limit)
 )
 
 @contextmanager
@@ -178,9 +181,9 @@ class ProgressCallback:
         progress = int(50 + clip_progress)
         update_job_progress(self.db, self.job_id, progress, f"Completed clip {clip_number}/{self.total_clips}")
 
-@celery_app.task(bind=True, max_retries=3)
+@celery_app.task(bind=True, max_retries=1, soft_time_limit=1800, time_limit=2100)
 def process_video_task(self, job_id: int):
-    """Process video task with improved error handling"""
+    """Process video task with improved error handling and memory management"""
     temp_input_file = None
     
     with get_db_session() as db:
@@ -190,6 +193,16 @@ def process_video_task(self, job_id: int):
             if not job:
                 logger.error(f"Job {job_id} not found")
                 return
+            
+            # Check if job was already attempted and killed
+            if job.status == "processing" and job.started_at:
+                # Check if job has been processing for too long (likely killed)
+                from datetime import datetime, timedelta
+                if datetime.utcnow() - job.started_at > timedelta(minutes=20):
+                    logger.warning(f"Job {job_id} appears to have been killed (processing > 20 min)")
+                    update_job_status(db, job_id, "failed", 
+                                    "Processing timed out - video may be too large for available memory. Please try with a shorter video or contact support.")
+                    return
             
             # Update job status to processing
             update_job_status(db, job_id, "processing")
@@ -234,6 +247,10 @@ def process_video_task(self, job_id: int):
             # Initialize integrated video service (backend2's proven implementation)
             video_service = VideoService()
             
+            # Force memory cleanup before processing
+            import gc
+            gc.collect()
+            
             # Process video using backend2's working implementation
             try:
                 import asyncio
@@ -242,6 +259,8 @@ def process_video_task(self, job_id: int):
                     num_clips=job.num_clips_requested,
                     burn_captions=False
                 ))
+            except MemoryError as mem_err:
+                raise Exception("Out of memory during video processing. Please try with a shorter video or contact support for assistance with large files.") from mem_err
             except Exception as e:
                 logger.error(f"VideoService processing failed: {e}")
                 raise
@@ -305,13 +324,14 @@ def process_video_task(self, job_id: int):
                 except Exception as clip_error:
                     logger.error(f"Error processing clip {clip_data.get('clip_number', 'unknown')}: {clip_error}")
                     continue
-                # Cleanup temporary input file if downloaded from S3
-                if temp_input_file and os.path.exists(temp_input_file.name):
-                    try:
-                        os.unlink(temp_input_file.name)
-                        logger.info(f"🧹 Cleaned up temporary file: {temp_input_file.name}")
-                    except Exception as cleanup_error:
-                        logger.warning(f"Failed to cleanup temporary file: {cleanup_error}")
+            
+            # Cleanup temporary input file if downloaded from S3
+            if temp_input_file and os.path.exists(temp_input_file.name):
+                try:
+                    os.unlink(temp_input_file.name)
+                    logger.info(f"🧹 Cleaned up temporary file: {temp_input_file.name}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup temporary file: {cleanup_error}")
             
             # Update final job status
             job.total_clips_generated = len(processed_clips)
@@ -320,6 +340,10 @@ def process_video_task(self, job_id: int):
             
             db.commit()
             print(f"✅ Successfully processed video for job {job.processing_id}")
+            
+            # Final memory cleanup
+            import gc
+            gc.collect()
             
             return {
                 "status": "completed",
@@ -336,13 +360,28 @@ def process_video_task(self, job_id: int):
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup temporary file after error: {cleanup_error}")
             
-            error_msg = f"Error processing video: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_msg)
+            error_msg = f"Error processing video: {str(e)}"
+            logger.error(f"{error_msg}\n{traceback.format_exc()}")
+            
+            # Force memory cleanup
+            import gc
+            gc.collect()
+            
             try:
                 update_job_status(db, job_id, "failed", error_msg)
             except SQLAlchemyError as db_error:
                 logger.error(f"Failed to update error status: {db_error}")
-            raise self.retry(exc=e, countdown=5 * (self.request.retries + 1))
+            
+            # Only retry once for transient errors, not for memory errors
+            if "memory" in str(e).lower() or "killed" in str(e).lower():
+                logger.error("Memory error detected - not retrying")
+                return {"status": "failed", "error": error_msg}
+            
+            # Retry other errors once with longer delay
+            if self.request.retries < 1:
+                raise self.retry(exc=e, countdown=10)
+            else:
+                return {"status": "failed", "error": error_msg}
 
 @worker_ready.connect
 def worker_ready_handler(sender=None, **kwargs):
