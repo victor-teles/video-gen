@@ -206,6 +206,7 @@ dump.rdb
 *.csv
 *.json
 !.runpod/hub.json
+!.runpod/test_input.json
 *.xml
 *.xlsx
 *.parquet
