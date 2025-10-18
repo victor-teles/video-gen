@@ -205,6 +205,7 @@ dump.rdb
 # Large data files
 *.csv
 *.json
+!.runpod/hub.json
 *.xml
 *.xlsx
 *.parquet
