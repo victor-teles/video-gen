@@ -12,7 +12,8 @@ from typing import Optional, List, Tuple
 class S3Storage:
     def __init__(self):
         """Initialize S3 storage handler"""
-        self.s3_client = boto3.client('s3')
+        self.endpoint_url = os.getenv('S3_ENDPOINT_URL', 'https://s3.us-east-1.amazonaws.com')
+        self.s3_client = boto3.client('s3', endpoint_url=self.endpoint_url)
         self.bucket_name = os.getenv('S3_BUCKET_NAME', 'trod-video-clips')
         self.logger = logging.getLogger(__name__)
 

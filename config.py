@@ -13,6 +13,7 @@ storage_type_raw = os.getenv("STORAGE_TYPE", "s3")
 STORAGE_TYPE = storage_type_raw.split('#')[0].strip() if storage_type_raw else "s3"
 
 # S3 Configuration
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "trod-video-clips")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
