@@ -9,7 +9,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-def handler(event):
+async def handler(event):
 #   This function processes incoming requests to your Serverless endpoint.
 #
 #    Args:
@@ -43,14 +43,12 @@ def handler(event):
     import gc
     gc.collect()
     
-    # Process video using backend2's working implementation
     try:
-        import asyncio
-        result = asyncio.run(video_service.process_video(
+        result = await video_service.process_video(
             video_path=str(input_file),
             num_clips=num_clips,
             burn_captions=False
-        ))
+        )
     except MemoryError as mem_err:
         raise Exception("Out of memory during video processing. Please try with a shorter video or contact support for assistance with large files.") from mem_err
     except Exception as e:
