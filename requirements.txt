@@ -19,13 +19,13 @@ python-dotenv==1.0.1
 
 # Video Processing and AI Libraries (backend2's working stack)
 git+https://github.com/m-bain/whisperx.git
+faster-whisper
 ctranslate2==4.6.0
 ultralytics
 opencv-python>=4.8.0
 torch
 torchvision
 torchaudio>=2.8.0,<2.9.0
-faster-whisper
 pyannote.audio
 soundfile>=0.12.1
 transformers>=4.33.1
